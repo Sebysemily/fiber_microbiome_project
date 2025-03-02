@@ -1,4 +1,5 @@
 data/*
 data/**
 data/***
-
+analysis/00_fastqc/fastqc_report
+.Rproj.user
