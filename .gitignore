@@ -5,5 +5,8 @@ analysis/env-fall15/**
 analysis/env-fall15/*
 analysis/00_fastqc/fastqc_report/*
 analysis/figures/*
+analysis/figures/**
+analysis/00_fastqc/fastqc_report/**
 figures/*
+figures/**
 .Rproj.user
