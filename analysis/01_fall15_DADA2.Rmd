@@ -173,13 +173,12 @@ head(filtered_reverse_reads)
 ```
 ## Filter and Trim Reads
 ```{r filter-and-trim}
-# we do not need to trim the primers, because they were not sequenced
 filtered_reads <- 
   filterAndTrim(fwd = forward_reads, filt = filtered_forward_reads,
               rev = reverse_reads, filt.rev = filtered_reverse_reads,
-              maxN = 0, maxEE = c(2,1), 
-              truncLen = c(240,200),
-              trimLeft = 8,
+              maxN = 0, maxEE = c(1,1), 
+              truncLen = c(240,217),
+              trimLeft = 4,
               truncQ = 2,
               rm.phix = TRUE, compress = TRUE,
               multithread = 10)

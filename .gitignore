@@ -10,3 +10,6 @@ analysis/00_fastqc/fastqc_report/**
 figures/*
 figures/**
 .Rproj.user
+*/*.RData
+*.RData
+
