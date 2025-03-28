@@ -14,7 +14,7 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,
                       fig.align = "center",
-                      fig.path = "figures/01_DADA2")
+                      fig.path = "../../figures/01_DADA2")
 ```
 # Set the seed 
 ```{r set-seed}
@@ -56,7 +56,7 @@ library("patchwork")
 # Load in the raw sequencing data.
 ```{r}
 #set the path 
-raw_fastqs_path <- "data/fastq_data/fall15"
+raw_fastqs_path <- "data/fastq_data/fastq_files"
 
 #what files are in the path?
 head(list.files(raw_fastqs_path))
@@ -134,10 +134,9 @@ Further decline in reverse Reads After ~170 Cycles/Bases:
 After 170~ the quality of the reads start to diminish with some dips below 30, after 200~ bases this gets amplified and there are a lot of dips below 20 making a lot of the data after this unusable.
 The last couple of bases in the reverse read present the typical dip into unusable quality.
 This effect was seen in fastqc and multiqc, with a major dip in quality by the end of the run.
-Solution: We will use stricter expected error rates for the reverse read as to maintain as most depth as possible for future analysis, then truncLen = c(250,200) to eliminate the sudden abrupt dip in quality for the reverse length.
+Solution: We will use stricter expected error rates because of the reverse read , then truncLen = c(250,217) to eliminate the sudden abrupt dips in quality.
 
 Forward Reads Maintain Quality longer and in average have a higher fidelity overall.
-Solution: The reads will be exposed to different maxEE values as to eliminate the least depth as possible
 Forward reads degrade after ~170 cycles.
 Reverse reads have a worst quality overall requiring stricter controls for appropriate quality.]
 # Filter by the quality and trim primers from sequencing data.
@@ -221,7 +220,7 @@ postQC_aggregate_plot <-
 # Show the plot
 postQC_aggregate_plot
 ```
-[The random dips in quality have been mostly eliminated while maintaining good sequencing depth, the dip at the end of the reverse read has been eliminated as well.
+[The random dips in quality below 20 have been eliminated while maintaining good sequencing depth, the dip at the end of the reverse read has been eliminated as well.
 The quality of the sequences has become a lot better with no sequences dipping below 26~]
 ### Visualize QC differences in plot 
 ```{r pre-post-QC-plot, fig.width=6, fig.height=5.5}
@@ -287,4 +286,4 @@ numSeqs_QC_dotplot + numRetained_QC_histplot + percSeqs_QC_histplot +
   plot_annotation(tag_levels = 'A')
 
 ```
-[Most of the sequences were maintained and general distribution of the seqs across samples was also mantained]
+[Most of the sequences were maintained and general distribution of the sequences across samples was also maintained]

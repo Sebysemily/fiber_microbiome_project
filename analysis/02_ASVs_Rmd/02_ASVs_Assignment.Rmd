@@ -10,7 +10,7 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,
                       fig.align = "center", 
-                      fig.path = "../figures/02_AssignASVs/")
+                      fig.path = "../../figures/02_AssignASVs/")
 ```
 # Goals 
 
@@ -514,7 +514,7 @@ glimpse(final_ASV_table)
 ## Replace the ASV seqs with the ASV numbers 
 row.names(final_ASV_table) <- sub(">", "", ASV_headers)
 final_ASV_table[1:5, 1:5]
-View(final_ASV_table) # To view the table
+#View(final_ASV_table) # To view the table
 ``` 
 
 ### Write the ASV Tables!
