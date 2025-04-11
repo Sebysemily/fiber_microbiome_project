@@ -135,43 +135,6 @@ unrooted_physeq %>%
   data.frame() %>%
   colSums()
 ```
-```{r evaluate-long-branch-582}
-# Zoom in on node that looks potentially suspicious
-viewClade(kingdom_node_tree + 
-          labs(title = "Tree: Node 582"), 
-          node = 582)
-# Lets see its ancestors
-ancestor(unrooted_tree, 582)
-# Or if there are two nodes that we can see we can find its MRCA
-## create tibble of tree to identify offspring
-tree_tib <- as_tibble(unrooted_physeq@phy_tree)
-
-# lets look at the branches
-MRCA_2573 <- MRCA(unrooted_tree, .node1 = 582, .node2 = 583) #node = 2573
-
-viewClade(kingdom_node_tree, 2573) 
-
-## create dataframe to view ASVs and taxa info and to pull the ASVs
-node2573 <- offspring(tree_tib, 2573, tiponly = TRUE) %>% 
-  as.data.frame() %>% pull(label)
-
-# Now, let's pull out the taxonomy information, including the ASV sequence!
-node_2573_df <- 
-  unrooted_physeq %>%
-  tax_table() %>%
-  as.data.frame() %>% 
-  filter(ASV %in% node2573) 
-
-# Take a look: 
-glimpse(node_2573_df)
-
-# look at counts of the ASVs
-unrooted_physeq %>%
-  subset_taxa(., ASV %in% node_2573_df$ASV) %>%
-  otu_table() %>%
-  data.frame() %>%
-  colSums()
-```
 
 ```{r evaluate-long-branch-2922}
 #for node 2922
@@ -237,10 +200,10 @@ archaea_node <- findMRCA(unrooted_tree, tips = archaea_node, type = "node") #nod
 viewClade(kingdom_node_tree, 2922)
 
 # Root the tree using node 2922
-archaea_root_tree <- ape::root(unrooted_tree, node = 2922, resolve.root = TRUE)
+archaeal_rooted_tree <- ape::root(unrooted_tree, node = 2922, resolve.root = TRUE)
 
 # Check if tree is rooted
-is.rooted(archaea_root_tree)# should be TRUE
+is.rooted(archaeal_rooted_tree)# should be TRUE
 
 # plot unrooted tree with node 2922 highlighted
 archaea_tree <- 
@@ -252,34 +215,27 @@ archaea_tree <-
 
 archaea_tree
 # merge with physeq
-archaea_root_physeq <- merge_phyloseq(raw_preprocessed_physeq, archaea_root_tree)
+archaeal_rooted_physeq <- merge_phyloseq(raw_preprocessed_physeq, archaeal_rooted_tree)
 
 # Plot rooted simple tree with no text
-archaea_rooted_simple <- ggtree(archaea_root_physeq) +
+archaea_rooted_simple <- ggtree(archaeal_rooted_physeq) +
   geom_tippoint(aes(color = Kingdom))  
 
 archaea_rooted_simple
 
 # Plot rooted tree with text
-archaea_rooted_text <- ggtree(archaea_root_physeq) +
+archaeal_rooted_text <- ggtree(archaeal_rooted_physeq) +
   geom_tippoint(aes(color = Kingdom)) + 
   geom_text(aes(label = node), hjust = -0.5, vjust = -0.3, size = 1.5)
 
-archaea_rooted_text
+archaeal_rooted_text
 ```
 The tree looks finalized, the long branches have no reason to be pruned and overall the rest of the ASVs have close relationships to each other so there are no aditional points of interest.
 #Save phyloseq object
 ```{r save-phyloseq}
-# lets rename our phyloseq object
-phytree_preprocessed_physeq <- archaea_root_physeq
-
-# Save both phyloseq objects with our tree object to one .RData file 
-# save(list = c("unrooted_physeq_rm2618", "midroot_physeq_rm2618"),
-#      file = "data/04_Phylogenetic_Tree/phytree_preprocessed_physeq.RData")
-
-
 # now lets save our preprocessed phyloseq object
-save(phytree_preprocessed_physeq, file = "data/04_Phylogenetic_Tree/phytree_preprocessed_physeq.RData")
+save(archaeal_rooted_physeq, 
+     file = "data/04_Phylogenetic_Tree/archaeal_rooted_physeq.RData")
 ```
 
 #Session information
