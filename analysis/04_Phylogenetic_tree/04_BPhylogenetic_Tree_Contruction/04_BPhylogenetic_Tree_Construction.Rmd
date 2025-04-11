@@ -135,49 +135,86 @@ unrooted_physeq %>%
   data.frame() %>%
   colSums()
 ```
+```{r evaluate-long-branch-582}
+# Zoom in on node that looks potentially suspicious
+viewClade(kingdom_node_tree + 
+          labs(title = "Tree: Node 582"), 
+          node = 582)
+# Lets see its ancestors
+ancestor(unrooted_tree, 582)
+# Or if there are two nodes that we can see we can find its MRCA
+## create tibble of tree to identify offspring
+tree_tib <- as_tibble(unrooted_physeq@phy_tree)
 
-```{r evaluate-long-branch-1289}
-#for node 1289
+# lets look at the branches
+MRCA_2573 <- MRCA(unrooted_tree, .node1 = 582, .node2 = 583) #node = 2573
+
+viewClade(kingdom_node_tree, 2573) 
+
+## create dataframe to view ASVs and taxa info and to pull the ASVs
+node2573 <- offspring(tree_tib, 2573, tiponly = TRUE) %>% 
+  as.data.frame() %>% pull(label)
+
+# Now, let's pull out the taxonomy information, including the ASV sequence!
+node_2573_df <- 
+  unrooted_physeq %>%
+  tax_table() %>%
+  as.data.frame() %>% 
+  filter(ASV %in% node2573) 
+
+# Take a look: 
+glimpse(node_2573_df)
+
+# look at counts of the ASVs
+unrooted_physeq %>%
+  subset_taxa(., ASV %in% node_2573_df$ASV) %>%
+  otu_table() %>%
+  data.frame() %>%
+  colSums()
+```
+
+```{r evaluate-long-branch-2922}
+#for node 2922
 # Zoom in on node that looks potentially suspicious
 viewClade(kingdom_node_tree+ 
-          labs(title = "Archaea Rooted Tree: Node 1289"), 
-          node = 1289)
+          labs(title = "Tree: 2922"), 
+          node = 2922)
 
 # Lets see its ancestors
-ancestor(unrooted_tree, 1289)
+ancestor(unrooted_tree, 2922)
 # Or if there are two nodes that we can see we can find its MRCA
 
 
-# Let's evaluate 3279!!
-viewClade(kingdom_node_tree, 3279) # even more zoomed out
+# Let's evaluate 2921!!
+viewClade(kingdom_node_tree, 2921) # even more zoomed out
 
 # lets look at the long branch
-mrca_node_1289 <- tidytree::MRCA(unrooted_tree, .node1 = 1289, .node2 = 1290) #3281
+mrca_node_2922 <- tidytree::MRCA(unrooted_tree, .node1 = 933, .node2 = 932) #2922
 
 # Inspect
-mrca_node_1289 #3281
+mrca_node_2922 #2922
 ## create dataframe to view ASVs and taxa info and to pull the ASVs
-node_3281 <- 
-  offspring(tree_tib, mrca_node_1289, tiponly = TRUE) %>% 
+node_2922 <- 
+  offspring(tree_tib, mrca_node_2922, tiponly = TRUE) %>% 
   as.data.frame() %>% 
   pull(label)
 
 # Inspect
-node_3281
+node_2922
 # Now, let's pull out the taxonomy information, including the ASV sequence!
-node_3281_df <- 
+node_2922_df <- 
   unrooted_physeq %>%
   tax_table() %>%
   as.data.frame() %>% 
-  filter(ASV %in% node_3281) 
+  filter(ASV %in% node_2922) 
 
 # Take a look: 
-glimpse(node_3281_df)
+glimpse(node_2922_df)
 
 
 # look at counts of the ASVs
 unrooted_physeq %>%
-  subset_taxa(., ASV %in% node_3281_df$ASV) %>%
+  subset_taxa(., ASV %in% node_2922_df$ASV) %>%
   otu_table() %>%
   data.frame() %>%
   colSums()

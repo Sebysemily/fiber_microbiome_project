@@ -38,7 +38,7 @@ knitr::opts_chunk$set(echo = TRUE,
 ```{r load-packages}
 #install.packages("BiocManager")
 #BiocManager::install("Biostrings")
-pacman::p_load(devtools, phyloseq, Biostrings, tidyverse, install = FALSE)
+pacman::p_load(devtools, phyloseq, Biostrings, tidyverse, patchwork, install = FALSE)
 ```
 
 ## Load Data
@@ -248,6 +248,7 @@ seqSums_df %>%
   arrange(TotalSeqs) %>%
   head()
 # plot it as a bar plot 
+numSeq_bar_plot <-
 seqSums_df %>%
   ggplot(aes(x=reorder(names, TotalSeqs), y = TotalSeqs,
              fill = status)) + 
@@ -256,16 +257,24 @@ seqSums_df %>%
   labs(y = "Read Depth", x = "Sample")
 
 # histogram
-seqSums_df %>%
+numSeq_hist_plot <- 
+  seqSums_df %>%
   ggplot(aes(x= TotalSeqs, fill = status)) + 
   geom_histogram(color = "black") + 
-  labs(y = "# of Samples", x = "Read Depth")
+  labs(y = "# of Samples", x = "Read Depth") + 
+  theme(legend.position = "bottom")
 
 # Density plot 
+numSeq_density_plot <-
 seqSums_df %>%
   ggplot(aes(TotalSeqs, fill = status)) +
   geom_density(alpha = 0.5) + 
   labs(x = "Read Depth")
+
+
+# Put it all together 
+numSeq_bar_plot + numSeq_hist_plot + numSeq_density_plot + 
+  plot_annotation(tag_levels = "A") 
 
 # What's the min seq depth? 
 min(sample_sums(noControlsMock_ChlorosMitos_physeq))
@@ -276,6 +285,9 @@ seqSums_df %>%
   dplyr::select(names, TotalSeqs) %>%
   arrange(TotalSeqs)
 ```
+
+Since I am working with a gut microbiome dataset I need a good enough sequencing depth to look at the whole picture. My samples all have pretty good sequencing depth with the minimum being 7000 and more than half of them being over 16000 capping at 30000~, I think i don't need to remove any samples since non have bad sequencing depth and I think I have enough sequencing depth for further analysis mainly because more than half of them are around 20000 and looking at the literature this is a decent minimum in gut samples.
+
 #Save proccesed phyloseq object
 ```{r save-object}
 save(noControlsMock_ChlorosMitos_physeq, file = "data/03_PreProcessing/raw_preprocessed_physeq.RData")
