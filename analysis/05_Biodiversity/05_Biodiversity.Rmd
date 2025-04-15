@@ -18,7 +18,7 @@ Run an analysis on the within-sample biodiversity of the samples in our project.
 
 1. Calculate the Hill Numbers of the samples using the iNEXT package. 
 2. Plot and evaluate the interpolated and extrapolated rarefaction curves from iNEXT. 
-3. Analyze the Hill numbers as it relates to stations and salinity (in PSU).
+3. Analyze the Hill numbers as it relates to status and short chain fatty acids concenctrations in milimoles per kilogram.
 4. Test and then answer the scientific question at hand! (Remember, we're doing biology!)
 
 ## Inputs 
@@ -37,10 +37,10 @@ Run an analysis on the within-sample biodiversity of the samples in our project.
 
 ## Question & Hypotheses
 
-How is produciton of short chain fatty acid modified in the gut microbiome after a dietary intervention with inulin?
+How is microbial diversity and short chain fatty acid concentrations (scfa) modified by inulin treatment.
 
-- *Null Hypothesis:* Concentrations of scf does not change after a treatment with inulin.
-- *Alternative Hypothesis:* Concentrations of scf in the gut increases after a treatment with inulin.
+- *Null Hypothesis:* Microbial diversity and scfa production does not vary during inulin treatment
+- *Alternative Hypothesis:* Microbial diversity and scfa production will increase during an inulin treatment. Establishing a correlation between fermentable fiber and gut biota.
 
 # Set up the Environment 
 
@@ -189,7 +189,7 @@ iNEXT_manual_df %>%
   # Now, let's draw the plot! 
   ggplot(aes(x = m, y = qD, color = status, group = names)) + 
   geom_line() + 
-  # Facet by station 
+  # Facet by status 
   facet_grid(Order.q~status, scales = "free") + 
   scale_color_manual(values = status_colors) + 
   theme_bw() + 
@@ -266,4 +266,247 @@ kw_status_total_scfa <-
 # Look at it 
 kw_status_total_scfa
 
+#Going forward I am going to mostly focus on the total change of scfa
+
+# post-hoc test with Dunn's Test
+dunn_status_total_scfa <- 
+  obs_whole_rich_df %>%
+  dunn_test(total_scfa ~ status, p.adjust.method = "fdr") %>%
+  add_xy_position(x = "status")
+
+# look at the pairwise
+dunn_status_total_scfa
+```
+
+#Plotting the total scfa
+```{r-plot-total-scfa}
+# Salinity by status 
+total_scfa_ggboxplot <- 
+  ggboxplot(obs_whole_rich_df, x = "status", y = "total_scfa", 
+          color = "status", fill = "status", alpha = 0.3,
+          outlier.shape = NA) + 
+  # Add points
+  geom_jitter(aes(color = status)) + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  labs(y = "total_scfa (millimoles per kilogram)") + 
+  # Now, let's add the KW results 
+  stat_pvalue_manual(dunn_status_total_scfa, hide.ns = TRUE,
+                      tip.length = 0, step.increase = 0.01) +
+  labs(subtitle = get_test_label(kw_status_total_scfa, detailed = TRUE),
+       caption = get_pwc_label(dunn_status_total_scfa)) + 
+  theme_bw() + 
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 30,
+                                   hjust = 1, 
+                                   vjust = 1))
+
+# Show the plot
+total_scfa_ggboxplot
+
+```
+The graph shows that there are no significant differences between the boxplots, the median before is slightly higher.
+
+### Diversity by status
+```{r-make-obs-div}
+# Plot boxplots by status against diversity
+obs_div_df %>%
+  ggplot(aes(x = status, y = qD, fill = status, 
+             color = status)) + 
+  facet_wrap(.~Order.q, scales = "free_y") + 
+  geom_jitter() + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  labs(y = "Effective Number of ASVs") + 
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 30,
+                                   hjust = 1,
+                                   vjust = 1))
+```
+
+
+#### Statistically test Richness
+```{r stat-richness}
+# Pull out richness data 
+obs_rich_df <- 
+  obs_div_df %>%
+  dplyr::filter(Order.q == 0)
+
+kw_status_rich <- 
+  obs_rich_df %>%
+  kruskal_test(qD ~ status)
+
+# View results
+kw_status_rich
+summary(kw_status_rich)
+
+rich_ggboxplot <-
+  ggboxplot(obs_rich_df, x = "status", y = "qD", fill = "status", 
+             color = "status", alpha = 0.3,
+          outlier.shape = NA) + 
+ geom_jitter(aes(color = status)) + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  labs(y = "# of Total ASVs (Richness)") + 
+  stat_compare_means(method = "kruskal.test", label.y = min(obs_rich_df$qD)) + 
+  geom_pwc(
+    aes(group = status), tip.length = 0, hide.ns = TRUE,
+    method = "t_test", label = "p.adj.format",
+    p.adjust.method = "fdr", bracket.nudge.y = -0.08) + 
+  theme_bw() + 
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 30,
+                                   hjust = 1, 
+                                   vjust = 1))
+# Pull out simpson data 
+obs_simpson_df <- 
+  obs_div_df %>%
+  dplyr::filter(Order.q == 2)
+# Kruskal walis test
+kw_simpson_df <- 
+  obs_rich_df %>%
+  kruskal_test(qD ~ status)
+
+# View results
+kw_simpson_df
+summary(kw_simpson_df)   
+
+simpson_ggboxplot <-
+  ggboxplot(obs_simpson_df, x = "status", y = "qD", fill = "status", 
+             color = "status", alpha = 0.3,
+          outlier.shape = NA) + 
+ geom_jitter(aes(color = status)) + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  labs(y = "# of dominant ASVs (simpson)") + 
+  stat_compare_means(method = "kruskal.test", label.y = 50) + 
+  geom_pwc(
+    aes(group = status), tip.length = 0, hide.ns = TRUE,
+    method = "t_test", label = "p.adj.format",
+    p.adjust.method = "fdr", bracket.nudge.y = -0.08) + 
+  theme_bw() + 
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 30,
+                                   hjust = 1, 
+                                   vjust = 1))
+
+# Show the plots
+rich_ggboxplot + simpson_ggboxplot
+```
+#Interpretation 2:
+I can conclude based on the kruskal-wallis tests that rare taxa change based on the inulin treatment but dominant taxa stay relatively stable with a non-significant change.
+#Interpretation 3: 
+The kruskall-wallis test is testing for a difference in microbial composition before and after the inulin treatment, a significant value in richness means that rare taxa are affected by a dietary intervention with fermentable fibers, although dominant species maintain stable.
+
+# scfa concentrations: 
+```{r-scfa-concentrations}
+# Create dataframe of scfa concentrations
+scfa_df <- 
+  metadata_df %>%
+  dplyr::select(Experiment, acetate, Butyrate, propionate, total_scfa)
+
+# Pair-wise interactions between scfas
+pairs(dplyr::select(scfa_df, -Experiment), upper.panel = NULL)
+```
+
+#How does total_scfa change in relation do diversity
+```{r plot-biodiversity-scfa}
+# How does biodiversity change over the salinity gradient?
+obs_div_df %>%
+  ggplot(aes(x = total_scfa, y = qD)) + 
+  facet_wrap(.~Order.q, scales = "free") + 
+  geom_point(aes(color = status)) + 
+  scale_color_manual(values = status_colors) + 
+  labs(x = "total_scfa (millimoles per kilogram)", y = "Effective Number of ASVs") +
+  stat_smooth(method = "lm", formula = y ~poly(x, 2)) + 
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+```
+There appears to be a negative relationship between scfa concentration and effective number of ASVs in the common and dominant, while the richness stays stable ( mainly in the extrapolations the actual data does not reflect clear trends)
+
+#Explore more richness
+```{r richness-stat}
+# Make a richness data frame
+richness_df <- 
+  obs_div_df %>%
+  dplyr::filter(Method == "Observed") %>%
+  dplyr::filter(Order.q == 0)
+
+# Actually run the linear model
+rich_vs_total_scfa <- 
+  lm(qD ~ total_scfa, data = richness_df)
+
+# Show me the model results
+rich_vs_total_scfa
+# Type?
+class(rich_vs_total_scfa)
+# Summary of lm
+summary(rich_vs_total_scfa)
+```
+
+#Richness plot
+```{r-ichness-plot}
+richness_df %>% 
+  ggplot(aes(x = total_scfa, y = qD)) + 
+  geom_point(aes(color = status)) + 
+  stat_smooth(method = "lm") + 
+  labs(x = "Salinity (PSU)", y = "# of ASVs") + 
+  scale_color_manual(values = status_colors) + 
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        legend.title = element_blank()) + 
+  geom_label(aes(x = 20, y = 60), hjust = 0, 
+             label = paste("Adj R2 = ",signif(summary(rich_vs_total_scfa)$adj.r.squared, 2),
+                           "\nIntercept =",signif(rich_vs_total_scfa$coef[[1]],3),
+                           " \nSlope =",signif(rich_vs_total_scfa$coef[[2]], 2),
+                           " \nP =",signif(summary(rich_vs_total_scfa)$coef[2,4], 2)))
+
+```
+
+#Spearman correlation
+
+```{r-spearman-correl}
+
+richness_df %>% 
+  ggplot(aes(x = total_scfa, y = qD)) + 
+  geom_point(aes(color = status)) + 
+  stat_smooth(method = "lm") + 
+  labs(x = "total SCFA", y = "# of ASVs") + 
+  scale_color_manual(values = status_colors) + 
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        legend.title = element_blank()) + 
+  stat_cor(method = "spearman", label.x = 3, label.y = 30)
+```
+#Interpretation 4: 
+Richness and rare taxa were the only ones that changed statistically significantly but it looks like total_scfa is not able to significantly explain this change, so scfa production does not relate to changes in richness significantly.
+
+#Interpretation 5:
+I checked it by asking if total_scfa could explain the changes in richness observed during the kruskall wallis test, because a part of my scientific question was to determine whether scfa concentrations changed with diversity after the inulin treatment.
+
+# Final info for Reproducibility 
+
+## Check Render Time
+```{r stop-time}
+# Take the time now that we are at the end of the script
+end_time <- Sys.time()
+end_time 
+
+# Echo the elapsed time
+elapsed_time <- round((end_time - start_time), 3)
+elapsed_time
+```
+
+## Session Information
+
+```{r session-info}
+# Ensure reproducibility with package version information
+devtools::session_info()
 ```
