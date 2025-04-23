@@ -174,7 +174,7 @@ node_2922_df <-
 # Take a look: 
 glimpse(node_2922_df)
 
-
+node_2922_df$ASVseqs
 # look at counts of the ASVs
 unrooted_physeq %>%
   subset_taxa(., ASV %in% node_2922_df$ASV) %>%

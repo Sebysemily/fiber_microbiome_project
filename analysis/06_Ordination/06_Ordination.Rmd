@@ -1,0 +1,615 @@
+---
+title: "Beta diversity of microbes during inulin treatment"
+author: "Roger Calvas"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    code_folding: show
+    theme: spacelab
+    highlight: pygments
+    keep_md: no
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+      toc_depth: 3
+  keep_md: true  
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      fig.path = "../figures/06_Ordination")
+
+```
+
+# Goals 
+
+1. Load in phyloseq data with rooted tree & colors and functions.  
+2. Evaluate sequencing depth and remove samples, if needed.  
+3. Normalize the read counts between samples.  
+4. Calculate community **dis**similarities. Numbers between 0 and 1. If 0, completely similar versus if they are 1, then they're completely dissimilar.   
+    a. **Sorensen**: Shared Species as a binary value: Abundance-unweighted 
+    b. **Bray-Curtis**: Shared Abundant species: Abundance-weighted
+    c. **(Abundance-)Weighted UNIFRAC**: Consider Abundant Species and where they fall on the tree  
+5. Run statistics with functions from the vegan R package: 
+    a. PERMANOVA with `adonis2()`.
+    b. betadispR with `betadisper()` and `permutest()`. 
+6. Visualize the community data with two unconstrained Ordinations:  
+    a. **PCoA**: Linear Method. Eigenvalue = how much variation is explained by each axis. Choose to view axis 1, 2, 3, etc. and plot them together.  
+    b. **NMDS**: Non-linear. Smush multiple Dimensions into 2 or 3 axes. Need to report Stress value (ideally <0.15).  
+
+## Inputs 
+
+1. We will need the `phytree_preprocessed_physeq.RData`
+
+## Outputs 
+
+*This is an exciting analysis!!! We get to answer another one of our scientific questions!*
+
+1. Calculated beta-diversity dissimilarity measures (*e.g.* Sorensen, Bray-Curtis, abundance-unweighted and -weighted UniFrac) across every sample. 
+2. Ordination figures (*i.e.,* PCoA/NMDS) to include in the scientific paper that visualize the data as it relates to the scientific question.
+3. Statistical tests (*i.e.,* PERMANOVA & betadisper) conveying the measured and quantified changes and patterns in biodiversity.
+
+# Scientific Question 
+
+Does inulin treatment increase SCFA production (i.e., acetate, butyrate, propionate), and is this associated with a shift in fiber-fermenting bacteria?
+
+- *Null Hypothesis:* Microbial diversity and scfa production does not vary during inulin treatment.
+- *Alternative Hypothesis:* An inulin treatment will stimulate scfa production and shift microbial composition.
+
+
+<span style="color: red;">INTERPRETATION #1:  What is your scientific question and hypotheses? Do they relate to abundance? Presence/absence? Phylogeny?</span>
+
+Does inulin treatment increase SCFA production (i.e., acetate, butyrate, propionate), and is this associated with a shift in fiber-fermenting bacteria?
+
+- *Null Hypothesis:* Microbial diversity and scfa production does not vary during inulin treatment.
+- *Alternative Hypothesis:* An inulin treatment will stimulate scfa production and shift microbial composition.
+
+This question relates to abundance by observing changes in the gut microbial composition during an inulin treatment, favoring the taxa that produce scfa from fermentable fiber.
+# Set up 
+
+## Timing of this script
+
+```{r rmd-start}
+# What time did we start running this script? 
+start_time <- Sys.time()
+```
+
+## Set the seed
+
+```{r set-seed}
+set.seed(39809473)
+```
+
+## Load Packages, colors & functions  
+```{r load-packages}
+pacman::p_load(tidyverse, devtools, phyloseq, patchwork, vegan, 
+               install = FALSE)
+
+# Load Colors 
+source("code/colors.R")
+
+# Load functions 
+source("code/functions.R")
+```
+
+# 1. Load in the data 
+
+```{r load-data}
+# load phyloseq object
+load("data/04_Phylogenetic_Tree/archaeal_rooted_physeq.RData")
+archaeal_rooted_physeq
+
+# Intuition check on seq depth
+min(sample_sums(archaeal_rooted_physeq))
+```
+## Create metadata
+```{r metadata}
+# Create Metadata_df 
+metadata_df <- 
+  archaeal_rooted_physeq %>%
+  sample_data() %>%
+  data.frame()
+```
+# Normalizing the Read Depth 
+
+## 2. Explore the Raw Read Counts 
+
+```{r explore-read-counts, fig.width=6, fig.height=3}
+# calculate read counts per sample 
+raw_TotalSeqs_df <- 
+  archaeal_rooted_physeq %>%
+  # Calculate the total number of sequences/reads
+  sample_sums() %>%
+  data.frame()
+
+# Take a look 
+head(raw_TotalSeqs_df)
+
+# Rename the column 
+colnames(raw_TotalSeqs_df)[1] <- "TotalSeqs"
+
+# add a new column of num_ASVs (RAW, non-noramlized # ASVs)
+raw_TotalSeqsASVs_df <- 
+  raw_TotalSeqs_df %>%
+  mutate(num_ASVs = colSums(otu_table(archaeal_rooted_physeq) > 1))
+
+#View(raw_TotalSeqsASVs_df)
+
+# Plot histogram of seq depth 
+rawSeq_histogram <- 
+  raw_TotalSeqsASVs_df %>%
+  ggplot(aes(x = TotalSeqs)) + 
+  geom_histogram(bins = 50) + 
+  scale_x_continuous(limits = c(0, 35000)) + 
+  labs(title = "Raw Seq Depth Histogram") + 
+  theme_bw()
+
+# Plot Seq Depth versus num_ASVs
+rawSeq_vs_numASV_plot <- 
+  raw_TotalSeqsASVs_df %>%
+  ggplot(aes(x = num_ASVs, y = TotalSeqs)) + 
+  geom_point() + 
+  scale_y_continuous(limits = c(0, 35000)) +
+  geom_smooth(method = "lm") + 
+  labs(title = "Seq Depth vs # ASVs") + 
+  theme_bw()
+
+# is it significant? 
+summary(lm(TotalSeqs ~ num_ASVs, data = raw_TotalSeqsASVs_df))
+
+# Put the two plots together.
+rawSeq_histogram + rawSeq_vs_numASV_plot +
+  plot_annotation(tag_levels = "A")
+```
+
+<span style="color: red;">INTERPRETATION #2:  Evaluating the above plots, what did you scale the read counts to in your dataset? Why did you choose that number? Do you think it is sufficient to perform a beta-diversity analysis and accurately compare your data to one another?</span>
+
+I chose the minimun sequencing depth in the dataset at 7k~ because even thought plot B shows a positive correlation between sequencing depth and number of ASVs but it is not too steep, also based on the spread of the scatterplot and the fact that the minimum is not an outlier it seems like sufficient lenght.
+There is an outlier with unusually high count of ASVs so I will keep an eye on it.
+
+# 3. Scale Read Counts 
+
+```{r scale-reads, fig.width=6, fig.height=3}
+min(sample_sums(archaeal_rooted_physeq))
+
+# Scale the reads 
+scaled_physeq <- 
+  archaeal_rooted_physeq %>%
+  scale_reads(round = "matround")
+
+# Look at it 
+scaled_physeq
+
+# Look at it more!
+#View(data.frame(otu_table(archaeal_rooted_physeq)))
+#View(data.frame(otu_table(scaled_physeq)))
+
+# Confirm seq read depth of scaled_physeq 
+scaled_TotalSeqs_df <- 
+  scaled_physeq %>%
+  sample_sums() %>%
+  data.frame()
+
+colnames(scaled_TotalSeqs_df)[1] <- "TotalSeqs"
+
+# add a new column of num_ASVs (RAW, non-noramlized # ASVs)
+scaled_TotalSeqsASVs_df <- 
+  scaled_TotalSeqs_df %>%
+  mutate(num_ASVs = colSums(otu_table(scaled_physeq) > 1))
+
+# Plot it! 
+scaledSeq_histogram <- 
+  scaled_TotalSeqs_df %>%
+  ggplot(aes(x = TotalSeqs)) + 
+  geom_histogram(bins = 50) + 
+  labs(title = "Scaled Seq Depth Histogram") + 
+  scale_x_continuous(limits = c(0, 10000)) + 
+  theme_bw()
+
+# Scaling always gives us a range! 
+# MInimum sequences
+min(scaled_TotalSeqs_df$TotalSeqs) 
+# Total Range 
+range(scaled_TotalSeqs_df)
+# How many is that range? 
+range_seqs <- (max(scaled_TotalSeqs_df$TotalSeqs) - min(scaled_TotalSeqs_df$TotalSeqs))
+range_seqs
+# And in terms of percent? 
+range_seqs/max(scaled_TotalSeqs_df$TotalSeqs)
+#View(scaled_TotalSeqs_df)
+
+# Set the axis min and max for the next plot 
+max_y <- max(scaled_TotalSeqs_df$TotalSeqs) + 10
+min_y <- min(scaled_TotalSeqs_df$TotalSeqs) - 10
+
+# Now, draw the plot 
+scaledSeq_vs_numASV_plot <- 
+  scaled_TotalSeqsASVs_df %>%
+  ggplot(aes(x = num_ASVs, y = TotalSeqs)) + 
+  geom_point() + 
+  scale_y_continuous(limits = c(min_y, max_y)) +
+  #geom_smooth(method = "lm") + 
+  theme_bw() + 
+  labs(title = "Scaled: Seq Depth vs # ASVs")
+
+# Put the two plots together.
+scaledSeq_histogram + scaledSeq_vs_numASV_plot +
+  plot_annotation(tag_levels = "A")
+```
+
+<span style="color: red;">INTERPRETATION #3:  Evaluate the scaled read count plots above. Are the total number of sequences across all of your samples in the same general range? What is the minimum and maximum (i.e., the range) of the sequencing depth? How was the relationship with the number of ASVs modified after scaling the read counts?</span>
+
+They are all in the same range, the minimum is 7191 and the maximum is 7229 ( range of 38), the range is 0.5~% which is really good. The relationship stayed quite similar after scaling, with the scatter plot distribution skewing a bit to the left including the outlier sample with the most ASVs.
+## sorting out NA values
+Since almost a 3rd of the propionate values are missing and this unables me to do a permanova with total_scfa I will do a simple imputation to change the NA values of all the scfas and calculate the total_scfa again with the sum
+```{r NA-values}
+## sorting out NA values
+# Impute missing values in acetate with median
+metadata_df$acetate[is.na(metadata_df$acetate)] <- median(metadata_df$acetate, na.rm = TRUE)
+
+# Impute missing values in butyrate with median
+metadata_df$Butyrate[is.na(metadata_df$Butyrate)] <- median(metadata_df$Butyrate, na.rm = TRUE)
+
+#Impute missing values in propionate with the median 
+metadata_df$propionate[is.na(metadata_df$propionate)] <- median(metadata_df$propionate, na.rm = TRUE)
+
+# Recalculate total SCFA
+metadata_df$total_scfa <- metadata_df$acetate + metadata_df$Butyrate + metadata_df$propionate
+
+#Intuition check
+sum(is.na(metadata_df$acetate))      
+sum(is.na(metadata_df$Butyrate))  
+sum(is.na(metadata_df$propionate))
+sum(is.na(metadata_df$total_scfa))   
+```
+##Calculate dissimilarity
+
+```{r Calc-dissimilarity}
+#Jaccard Dissimilarity
+scaled_jaccard_dist <- phyloseq::distance(scaled_physeq, method = "jaccard", binary = TRUE)
+
+# What does it look like? 
+class(scaled_jaccard_dist)
+str(scaled_jaccard_dist)
+#head(as.matrix(scaled_jaccard_dist))
+
+scaled_sorensen_dist <- phyloseq::distance(scaled_physeq, method = "bray", binary = TRUE)
+
+# Bray-Curtis Dissimiliarty
+scaled_Bray_dist <- phyloseq::distance(scaled_physeq, method = "bray", binary = FALSE)
+
+# Abundance-Unweighted UniFrac
+scaled_uUnifrac_dist <- phyloseq::distance(scaled_physeq, method = "unifrac")
+
+# Abundance-Weighted UniFrac
+scaled_wUnifrac_dist <- phyloseq::distance(scaled_physeq, method = "wunifrac")
+```
+
+<span style="color: red;">INTERPRETATION #4:  Which dissimilarity metric is most related to your scientific question? Why or why not?</span>
+
+I think bray curtis would be the most related to my scientific question, since I am looking for shifts in the dinamics of the community I want to look closely into relative abundance changes during the treatment, also find specific taxa that increased in response to inulin and that are related to scfa production from fermentable fiber, unifrac is a close second because I want to see the shifts in the structure of the community.
+
+### Permanova continous variable with total_scfa
+```{r PERMANOVA-categorical-bray}
+# bray
+## 1. Run with by = terms for R² values, sensitive to order of variables! 
+## ALWAYS check and confirm the order of your terms and how they interact with each other.  
+bray_status_adonis_terms1 <- adonis2(scaled_Bray_dist ~ status + total_scfa, data = metadata_df, by = "terms")
+bray_status_adonis_terms1
+
+# Check the order of the terms
+bray_status_adonis_terms2 <- adonis2(scaled_Bray_dist ~ total_scfa + status, data = metadata_df, by = "terms")
+bray_status_adonis_terms2
+
+## 2. Run with by = "margin" for marginal p-values, which we can compare to the residuals from the first one. 
+bray_status_adonis_margin <- adonis2(scaled_Bray_dist ~ total_scfa * status, data = metadata_df, by = "margin")
+bray_status_adonis_margin
+```
+### Permanova continous variable with total_scfa
+```{r PERMANOVA-categorical-sorensen}
+# sorensen
+## 1. Run with by = terms for R² values, sensitive to order of variables! 
+## ALWAYS check and confirm the order of your terms and how they interact with each other.  
+sorensen_status_adonis_terms1 <- adonis2(scaled_sorensen_dist ~ status + total_scfa, data = metadata_df, by = "terms")
+sorensen_status_adonis_terms1
+
+# Check the order of the terms
+sorensen_status_adonis_terms2 <- adonis2(scaled_sorensen_dist ~ total_scfa + status, data = metadata_df, by = "terms")
+sorensen_status_adonis_terms2
+
+## 2. Run with by = "margin" for marginal p-values, which we can compare to the residuals from the first one. 
+sorensen_status_adonis_margin <- adonis2(scaled_sorensen_dist ~ total_scfa * status, data = metadata_df, by = "margin")
+sorensen_status_adonis_margin
+```
+### Permanova continous for each scfa with bray
+```{r different-scfa-permanova}
+bray_status_adonis_propionate1 <- adonis2(scaled_Bray_dist ~ status + propionate, data = metadata_df, by = "terms")
+bray_status_adonis_propionate1
+
+# Check the order of the terms
+bray_status_adonis_propionate2 <- adonis2(scaled_Bray_dist ~ propionate + status, data = metadata_df, by = "terms")
+bray_status_adonis_propionate2
+
+bray_status_adonis_Butyrate1 <- adonis2(scaled_Bray_dist ~ status + Butyrate, data = metadata_df, by = "terms")
+bray_status_adonis_Butyrate1
+
+# Check the order of the terms
+bray_status_adonis_Butyrate2 <- adonis2(scaled_Bray_dist ~ Butyrate + status, data = metadata_df, by = "terms")
+bray_status_adonis_Butyrate2
+
+bray_status_adonis_acetate1 <- adonis2(scaled_Bray_dist ~ status + acetate, data = metadata_df, by = "terms")
+bray_status_adonis_acetate1
+
+# Check the order of the terms
+bray_status_adonis_acetate2 <- adonis2(scaled_Bray_dist ~ acetate + status, data = metadata_df, by = "terms")
+bray_status_adonis_acetate2
+```
+
+<span style="color: red;">INTERPRETATION #5: Using the above example to guide you, run the appropriate PERMANOVA for your scientific question and interpret the results. What biological conclusion can you draw from your PERMANOVA results?</span>
+
+Across all models status explained 0.8% of the variation, so the inulin treatment may not be statistically significant but it may change the microbial composition in specific reproducible ways, aditionally all results had a high R^2 values meaning that the results may be explained by specific abundance changes in certain taxa. 
+While status itself only explains a small portion of the variation scfa_production seems to be linked to the community shifts so it may be related to functional potential.
+
+# 5b. Betadisper: Testing Variances/Dispersions
+## Sorensen
+
+```{r betadisper-sorensen}
+# Homogeneity of Disperson test with beta dispr
+# Sorensen Betadisper - status 
+dispr_sorensen_status <- betadisper(scaled_sorensen_dist, metadata_df$status)
+# permutest() performs a non-parametric permutation test, which is robust and valid for the kind of data used in beta diversity analysis (e.g., dissimilarity matrices).
+permutest(dispr_sorensen_status)
+
+# Sorensen Betadisper - propionate
+dispr_sorensen_propionate<- betadisper(scaled_sorensen_dist, metadata_df$propionate)
+permutest(dispr_sorensen_propionate)
+
+# Sorensen Betadisper - Butyrate 
+dispr_sorensen_Butyrate<- betadisper(scaled_sorensen_dist, metadata_df$Butyrate)
+permutest(dispr_sorensen_Butyrate)
+```
+
+### Now lets test with bray curtis
+```{r betadisper-bray}
+# Bray-Curtis Betadisper - Status
+dispr_bray_status<- betadisper(scaled_Bray_dist, metadata_df$status)
+permutest(dispr_bray_status)
+
+# Bray-Curtis Betadisper - propionate 
+dispr_bray_propionate <- betadisper(scaled_Bray_dist, metadata_df$propionate)
+permutest(dispr_bray_propionate)
+
+# Bray-Curtis Betadisper - Butyrate  
+dispr_bray_Butyrate <- betadisper(scaled_Bray_dist, metadata_df$Butyrate)
+permutest(dispr_bray_Butyrate)
+```
+
+
+<span style="color: red;">INTERPRETATION #6: Using the above example to guide you, run the appropriate betadisper() and permutest() for your scientific question and interpret the results. What biological conclusion can you draw from your dispersion analysis?</span>
+
+Based on the dispersion analysis I can conclude that only propionate has significant dispersion making propionate analysis less rigid, while all the other variables had not significant dispersion so their anova is valid.
+
+
+<span style="color: red;">INTERPRETATION #7: Taking into account both the betadisper()/permutest() and the PERMANOVA (adonis2()) test that you ran, what biological conclusion can you draw regarding your data?</span>
+
+Given all the test results I can conclude that inulin has a small not-statistical significant effect on scfa concentrations, aditioanlly it has a relevant effect on microbial composition that can further explored.even if the permanova was not significant the difference is not explained by dispersion and it could account for true biological difference.
+
+# PCoA: Principal Coordinate analysis
+```{r pcoa-plots, fig.height=3.5, fig.width=7}
+### SORENSEN 
+# First, calculate PCoA with Soresen
+scaled_soren_pcoa <- 
+  ordinate(physeq = scaled_physeq,
+         method = "PCoA",
+         distance = "bray", binary = TRUE)
+
+# Take a quick look
+str(scaled_soren_pcoa)
+
+#prework for triplot ( I am going to go back and re do a couple of steps considering that I am pruning the 51 NA samples instead of imputing, alpha diversity as well, for now I will finish the hw :())
+###  Subset to samples with non-missing total_scfa
+# Filter the scaled object to remove samples with NA total_scfa
+physeq_no_na <- subset_samples(scaled_physeq, !is.na(total_scfa))
+## subsetted distance object
+subset_soren_dist <- distance(physeq_no_na, method = "bray", binary = TRUE)
+## PCoA with vegan object
+vegan_pcoa_soren <- capscale(subset_soren_dist ~ 1)
+## Fit vector 
+scfa_vector_fit_soren <- envfit(vegan_pcoa_soren, sample_data(physeq_no_na)$total_scfa, permutations = 999)
+scfa_arrow_soren <- as.data.frame(scores(scfa_vector_fit_soren, display = "vectors"))
+scfa_arrow_soren$variable <- "total_scfa"
+# Rename to match the axis names in ordination_df_soren
+colnames(scfa_arrow_soren)[1:2] <- c("CAP1", "CAP2")
+
+## Prepare for plotting the vector 
+ordination_df_soren <- as.data.frame(scores(vegan_pcoa_soren, display = "sites"))
+colnames(ordination_df_soren)[1:2] <- c("CAP1", "CAP2")
+ordination_df_soren$total_scfa <- sample_data(physeq_no_na)$total_scfa
+ordination_df_soren$status <- sample_data(physeq_no_na)$status
+ordination_df_soren$host_subject_id <- sample_data(physeq_no_na)$host_subject_id
+
+# Variation explained per axis
+## Extract eigenvalues from capscale ordination
+eig_vals_soren <- vegan_pcoa_soren$CA$eig
+
+## Calculate % variance explained by CAP1 and CAP2
+var_exp_soren <- round(100 * eig_vals_soren / sum(eig_vals_soren), 1)
+
+## Create axis labels
+xlab_text_soren <- paste0("Axis 1 (", var_exp_soren[1], "%)")
+ylab_text_soren <- paste0("Axis 2 (", var_exp_soren[2], "%)")
+
+# Plot it: Sorensen PCoA  
+sorensen_pcoa_plot <- 
+  ggplot(ordination_df_soren, aes(x = CAP1, y = CAP2)) +
+  geom_line(aes(group = host_subject_id), color = "gray80", linewidth = 0.5, alpha = 0.5) +
+  geom_point(aes(color = total_scfa, shape = status), size = 3.5, alpha = 0.85, stroke = 0.2) +
+  scale_color_gradientn(colors = c("grey80", "darkgreen", "green")) +
+  scale_shape_manual(values = c(16,17))+
+  geom_segment(data = scfa_arrow_soren, aes(x = 0, y = 0, xend = CAP1, yend = CAP2), arrow = arrow(length = unit(0.3, "cm"), type = "closed"), color = "lightgreen", linewidth = 1.5, alpha = 0.5) +
+  geom_text(data = scfa_arrow_soren,
+            aes(x = CAP1 -0.02, y = CAP2 -0.1, label = variable), color = "lightgreen", fontface = "bold", size = 3.5, alpha = 0.5) +
+  labs(title = "Triplot: soren", x = xlab_text_soren, y = ylab_text_soren, color = "Total SCFA (mmol/kg)", shape = "status") +
+  annotate("text",
+           x = Inf, y = -Inf,
+           label = "SCFA fit: R² = 0.017, p = 0.381",
+           hjust = 1.1, vjust = -1.2,
+           size = 3.5, fontface = "italic", color = "darkgreen") +
+  theme_bw()
+
+### Bray-Curtis 
+# Second, calculate PCoA with Bray-Curtis
+scaled_bray_pcoa <- 
+  ordinate(physeq = scaled_physeq,
+         method = "PCoA",
+         distance = "bray", binary = FALSE)
+
+
+## subsetted distance object
+subset_bray_dist <- distance(physeq_no_na, method = "bray", binary = FALSE)
+## PCoA with vegan object
+vegan_pcoa_bray <- capscale(subset_bray_dist ~ 1)
+## Fit vector 
+scfa_vector_fit_bray <- envfit(vegan_pcoa_bray, sample_data(physeq_no_na)$total_scfa, permutations = 999)
+scfa_arrow_bray <- as.data.frame(scores(scfa_vector_fit_bray, display = "vectors"))
+scfa_arrow_bray$variable <- "total_scfa"
+# Rename to match the axis names in ordination_df_bray
+colnames(scfa_arrow_bray)[1:2] <- c("CAP1", "CAP2")
+
+## Prepare for plotting the vector 
+ordination_df_bray <- as.data.frame(scores(vegan_pcoa_bray, display = "sites"))
+colnames(ordination_df_bray)[1:2] <- c("CAP1", "CAP2")
+ordination_df_bray$total_scfa <- sample_data(physeq_no_na)$total_scfa
+ordination_df_bray$status <- sample_data(physeq_no_na)$status
+ordination_df_bray$host_subject_id <- sample_data(physeq_no_na)$host_subject_id
+
+# Variation explained per axis
+## Extract eigenvalues from capscale ordination
+eig_vals_bray <- vegan_pcoa_bray$CA$eig
+
+## Calculate % variance explained by CAP1 and CAP2
+var_exp_bray <- round(100 * eig_vals_bray / sum(eig_vals_bray), 1)
+
+## Create axis labels
+xlab_text_bray <- paste0("Axis 1 (", var_exp_bray[1], "%)")
+ylab_text_bray <- paste0("Axis 2 (", var_exp_bray[2], "%)")
+
+# Plot it: braysen PCoA  
+bray_pcoa_plot <- 
+  ggplot(ordination_df_bray, aes(x = CAP1, y = CAP2)) +
+  geom_line(aes(group = host_subject_id), color = "gray80", linewidth = 0.5, alpha = 0.5) +
+  geom_point(aes(color = total_scfa, shape = status), size = 3.5, alpha = 0.85, stroke = 0.2) +
+  scale_color_gradientn(colors = c("grey80", "darkgreen", "green")) +
+  scale_shape_manual(values = c(16,17))+
+  geom_segment(data = scfa_arrow_bray, aes(x = 0, y = 0, xend = CAP1, yend = CAP2), arrow = arrow(length = unit(0.3, "cm"), type = "closed"), color = "lightgreen", linewidth = 1.5, alpha = 0.5) +
+  geom_text(data = scfa_arrow_bray,
+            aes(x = CAP1 -0.02, y = CAP2 -0.1, label = variable), color = "lightgreen", fontface = "bold", size = 3.5, alpha = 0.5) +
+  labs(title = "Triplot: bray", x = xlab_text_bray, y = ylab_text_bray, color = "Total SCFA (mmol/kg)", shape = "status") +
+  theme_bw() +
+    annotate("text",
+           x = Inf, y = -Inf,
+           label = "SCFA fit: R² = 0.028, p = 0.210",
+           hjust = 1.1, vjust = -1.2,
+           size = 3.5, fontface = "italic", color = "darkgreen")
+
+
+print(scfa_vector_fit_soren)
+print(scfa_vector_fit_bray)
+
+
+# Show the plots 
+ sorensen_pcoa_plot + bray_pcoa_plot +
+   plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+<span style="color: red;">INTERPRETATION #8: Plot your data using a PCoA. Interpret what you can conclude from the PCoA.</span>
+There is no strong clustering of samples by treatment with bray curtis clustering apparently because of scfa concentrations, and there is minimal correlation between community shifts and total_scfa levels, bray-curtis has a higher percentage explained in each axis and a stronger scfa vector, but still not statistically significant.
+Neither reveal strong correlations between total SCFA production and community composition. This suggests that the small but consistent changes in each scfa are probably caused within individuals or by changes in functional potential.
+
+## 6b. NMDS: Non-Metric Multidimensional Scaling 
+
+```{r soren-nmds}
+## SORENSEN 
+scaled_soren_nmds <- 
+  ordinate(physeq = scaled_physeq,
+         method = "NMDS",
+         distance = "bray", binary = TRUE)
+
+# Plot it! 
+sorensen_nmds_plot <- 
+  plot_ordination(physeq = scaled_physeq,
+                ordination = scaled_soren_nmds,
+                color = "status",
+                title = "Sorensen NMDS") + 
+  scale_color_manual(values = status_colors) + 
+  scale_shape_manual(values = c(15, 16, 17)) + 
+  geom_point(size = 5, alpha = 0.5, aes(color = status)) + 
+  theme_bw() + 
+  theme(legend.position = "right")
+
+### Bray-Curtis 
+# Second, calculate NMDS with Bray-Curtis
+scaled_bray_nmds <- 
+  ordinate(physeq = scaled_physeq,
+         method = "NMDS",
+         distance = "bray", binary = FALSE)
+
+# Plot it: Bray-Curtis NMDS 
+bray_nmds_plot <- 
+  plot_ordination(physeq = scaled_physeq,
+                ordination = scaled_bray_nmds,
+                color = "status",
+                title = "Bray-Curtis NMDS") + 
+  scale_color_manual(values = status_colors) + 
+  scale_shape_manual(values = c(15, 16, 17)) + 
+  geom_point(size = 5, alpha = 0.5, aes(color = status)) + 
+  theme_bw() + 
+  theme(legend.position = "right")
+
+# Show the plots 
+sorensen_nmds_plot + bray_nmds_plot + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+
+<span style="color: red;">INTERPRETATION #9: Plot your data using NMDS. Interpret what you can conclude from the NMDS.</span>
+
+The stress is acceptable, just below the cutoff. But the graph itself shows no strong clustering effect by treatment status with a lot of overlapping.
+
+## All ordinations together!
+
+```{r ordinations, fig.width=7, fig.height=6}
+sorensen_pcoa_plot + bray_pcoa_plot + 
+sorensen_nmds_plot + bray_nmds_plot + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+<span style="color: red;">INTERPRETATION #10: Plot both the PCoA and NMDS together. Which of the two visualizations work best for your data? Explain your reasoning.</span>
+
+Neither plot shows a strong correlation to the treatment groups, but PCoA has better potential at explaining the differences in the data with some trends and directionality observed. Bray curtis PCoA showed clustering around the top right with a noticeable gradient possibly related to SCFA levels, NMDS showd clustering but most samples were overlapping with no clear trends.
+
+# Final info for Reproducibility 
+
+## Check Render Time
+```{r stop-time}
+# Take the time now that we are at the end of the script
+end_time <- Sys.time()
+end_time 
+
+# Echo the elapsed time
+elapsed_time <- round((end_time - start_time), 3)
+elapsed_time
+```
+
+## Session Information
+
+```{r session-info}
+# Ensure reproducibility with package version information
+devtools::session_info()
+```

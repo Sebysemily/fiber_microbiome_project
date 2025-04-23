@@ -452,7 +452,8 @@ summary(rich_vs_total_scfa)
 ```
 
 #Richness plot
-```{r-ichness-plot}
+
+```{r richness-plot}
 richness_df %>% 
   ggplot(aes(x = total_scfa, y = qD)) + 
   geom_point(aes(color = status)) + 
