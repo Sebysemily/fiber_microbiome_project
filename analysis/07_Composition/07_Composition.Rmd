@@ -1,0 +1,906 @@
+---
+title: "Microbial compositional analysis in response to a inulin treatment"
+author: "Roger Calvas"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    code_folding: show
+    theme: spacelab
+    highlight: pygments
+    keep_md: no
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+      toc_depth: 3
+  keep_md: true  
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
+                      fig.path = "../../figures/07_Composition/")
+```
+# Goals
+
+In this file, we will perform compositional analysis of our scaled/noramlized/rarefied microbial dataset! 
+
+1. Load in scaled/normalized phyloseq object. 
+2. Calculate the relative abundances of taxonomic groups at various levels: 
+    A. Phylum
+    B. Genus
+    C. ASV 
+3. Plot them, and narrow in on specific taxnomic group of interest
+
+## Inputs 
+
+1. We will need the `scaled_physeq.RData`, which includes a rooted tree that we created in `analysis/06_Ordination/scaled_physeq.RData`. 
+
+## Outputs 
+
+1. Beautiful visualizations of microbial taxa and how they vary across parameters related to our study: station (categorical) and salinity (continuous).
+2. Run some stats! 
+
+# Compositional Data 
+
+Microbial abundance data—like 16S rRNA gene or metagenomics data—are typically **compositional:** they represent relative abundances constrained to a constant total (*e.g.,* percent or proportions). This introduces spurious correlations and other issues if analyzed with traditional statistics. This is a very important limitation to microbial data! 
+
+<span style="color: red;">INTERPRETATION #1: What are the limitations of interpreting microbial abundance from relative (aka. compositional) rather than absolute counts?</span>
+
+The limitations of relative abundance lies in the interpretation of change, because relative abundances are constrained to a sum of 100% in each sample if a taxon increases in abundance this forces another taxon to decrease their percentage even if the number of microorganisms present did not change. This can
+# Setup 
+
+## Load Packages 
+```{r load-packages}
+# Load in the packages 
+pacman::p_load(tidyverse, devtools, DT, phyloseq, patchwork, 
+               install = FALSE)
+
+# load colors
+source("code/colors.R")
+```
+
+
+## 1. Load in Scaled Phyloseq object 
+
+The following phyloseq object contains microbial community composition data in a standardized format. In this case, we’ve already normalized the reads (scaled to 1,942 per sample), which is essential for comparing relative abundances.
+
+
+```{r load-data}
+load("data/06_Ordination/scaled_physeq.RData")
+
+# Look at the data 
+scaled_physeq
+
+# Intuition check - scaled at 1,942
+min(sample_sums(scaled_physeq))
+range(sample_sums(scaled_physeq))
+```
+
+# Taxonomic analysis
+
+### Phylum
+
+```{r calc-phylum-df}
+# Create a phylum level dataframe
+phylum_df <- 
+  scaled_physeq %>%
+  # Agglomerate all ASV counts within a phylum
+  tax_glom(taxrank = "Phylum") %>%
+  # Calculate the relative abundance! 
+  transform_sample_counts(function(x) {x/sum(x)}) %>%
+  # Create a dataframe from phyloseq object
+  psmelt() 
+
+  
+
+## What are the phylum abundances? 
+phylum_df %>%
+  group_by(Phylum) %>%
+  summarize(mean_PercAbund = round(mean(Abundance), digits = 4)) %>%
+  arrange(-mean_PercAbund) %>%
+  datatable()
+
+# Make a list of phyla the top phyla 
+top10_phyla <- 
+  phylum_df %>%
+  group_by(Phylum) %>%
+  summarize(mean_PercAbund = mean(Abundance)) %>%
+  arrange(-mean_PercAbund) %>%
+  head(n = 10) %>%
+  pull(Phylum)
+```
+
+<span style="color: red;">INTERPRETATION #2: Which phyla in your dataset have the highest relative abundances? What are their abundances? We will focus on these phyla for plotting below. :)</span>
+
+My dataset has a high percentage of bacteroidota with 52.84% and bacillota with 38.5% the rest of the phylum have below 5% points.
+
+## Stacked Bar plots 
+```{r phylum-stacked-bar, fig.width=9, fig.height=3.5}
+# Stacked Bar Plot With All phyla 
+# Plot Phylum Abundances - make sure to load phylum_colors 
+phylum_df %>%
+  dplyr::filter(Phylum %in% top10_phyla) %>%
+  # Warning: It's important to have one sample per x value, 
+  # otherwise, it will take the sum between multiple samples
+  group_by(host_subject_id, status, Phylum) %>%
+  summarise(mean_abundance = mean(Abundance), .groups = "drop") %>% 
+  ggplot(aes(x = status, y = mean_abundance, fill = Phylum)) + 
+  geom_bar(stat = "identity", color = "black") + 
+   facet_grid(.~host_subject_id) + 
+  labs(title = "Top 10 Phyla: before inulin") + 
+  scale_fill_manual(values = phylum_colors) +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1))
+```
+
+## Faceted Bar plot 
+
+```{r phylum-facet-bar, fig.width=5, fig.height=12}
+phylum_df %>%
+  dplyr::filter(Phylum %in% top10_phyla) %>%
+  # Individual sample comparison of surface waters, whole fraction 
+  # This will allow us to look at individual samples! 
+  # Note that whenever plotting stacked bar plots, you should always look at Individual samples! 
+  group_by(host_subject_id, status, Phylum) %>%
+  summarise(mean_abundance = mean(Abundance), .groups = "drop") %>% 
+  ggplot(aes(x = status, y = mean_abundance, fill = Phylum)) + 
+   facet_grid(Phylum~host_subject_id) + 
+  # add the stacked bar 
+  geom_bar(stat = "identity", color = "black") + 
+  # change the colors to be our selected colors 
+  scale_fill_manual(values = phylum_colors) + 
+  theme_bw() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1))
+
+
+### Or combined together: 
+phylum_df %>%
+  dplyr::filter(Phylum %in% top10_phyla)  %>% 
+  group_by(host_subject_id, status, Phylum) %>%
+  summarise(mean_abundance = mean(Abundance), .groups = "drop") %>%
+  ggplot(aes(x = status, y = mean_abundance, fill = Phylum, color = Phylum)) + 
+  facet_grid(Phylum~host_subject_id, scale = "free") + 
+  # add the stacked bar 
+  geom_jitter() +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) + 
+  # change the colors to be our selected colors 
+  scale_fill_manual(values = phylum_colors) + 
+  scale_color_manual(values = phylum_colors) + 
+  theme_bw() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1))
+```
+
+
+```{r plot-phylum-status, fig.width=12, fig.height=6}
+### Or combined together: 
+phylum_df %>%
+  dplyr::filter(Phylum %in% top10_phyla) %>%
+  ggplot(aes(x = status, y = Abundance, fill = Phylum, color = Phylum)) + 
+  facet_wrap(Phylum~., scales = "free", nrow = 2) + 
+  # add the stacked bar 
+  geom_jitter() +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) + 
+  # change the colors to be our selected colors 
+  scale_fill_manual(values = phylum_colors) + 
+  scale_color_manual(values = phylum_colors) + 
+  theme_bw() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1))
+```
+
+INTERPRETATION #3: Make the above dotplot and boxplot for your sample types and your most abundant phyla. What initial conclusions can you draw regarding the sampled microbial communities as it relates to your scientific question?
+
+The phyla show consistent variation between individuals, but not seemingly related to the treatment, there is a slight trend in increased Bacillota and decreased Actinomycetota but it is not consistent across individuals, the shifts seem subtle and it is expected since the gut microbiome stays consistent, more discernable shifts may be observed at lower taxonomic levels. 
+
+### A1. Actinomycetota
+
+```{r phylum-actinos, fig.width=7, fig.height=3.5}
+# Narrow in on a specific group
+# Actinomycetota 
+actino_phylum_status <- 
+  phylum_df %>%
+  dplyr::filter(Phylum == "Actinomycetota") %>%
+  # build the plot 
+  ggplot(aes(x = status, y = Abundance, 
+             fill = status, color = status)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + # outliers not plotted here in boxplot 
+  geom_jitter() + 
+  theme_bw() + 
+  labs(title = "Actinomycetota Phylum") + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+    theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+          legend.position = "right") +
+    geom_text(aes(label = host_subject_id), 
+            vjust = -0.5, size = 2.5, check_overlap = TRUE) 
+# Statistically: Kruskall-Wallis followed by a Tukey's Posthoc test
+# These are non-parametric (non-normal) stat tests 
+
+
+# CONTINUOUS 
+actino_phylum_total_scfa <- 
+  phylum_df %>%
+  dplyr::filter(Phylum == "Actinomycetota") %>%
+  ggplot(aes(x = total_scfa, y = Abundance)) + 
+  geom_point(aes(color = status)) + 
+  theme_bw() + 
+  geom_smooth(method = "lm",  formula = y ~ poly(x, 2)) + 
+  labs(title = "Actinomycetota Phylum") + 
+  scale_color_manual(values = status_colors) + 
+  theme(legend.position = "none") +
+  geom_text(aes(label = host_subject_id), 
+            vjust = -0.5, size = 2.5, check_overlap = TRUE) 
+
+# Collect both of the plots together into one 
+actino_phylum_status + actino_phylum_total_scfa + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+
+```
+
+### A2. Bacillota
+
+```{r phylum-bacillotas, fig.width=7, fig.height=3.5}
+# Narrow in on a specific group
+# Bacillota 
+bacillota_phylum_status <- 
+  phylum_df %>%
+  dplyr::filter(Phylum == "Bacillota") %>%
+  # build the plot 
+  ggplot(aes(x = status, y = Abundance, 
+             fill = status, color = status)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + # outliers not plotted here in boxplot 
+  geom_jitter() + 
+  theme_bw() + 
+  labs(title = "Actinomycetota Phylum") + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+    theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+          legend.position = "right") +
+    geom_text(aes(label = host_subject_id), 
+            vjust = -0.5, size = 2.5, check_overlap = TRUE) 
+# Statistically: Kruskall-Wallis followed by a Tukey's Posthoc test
+# These are non-parametric (non-normal) stat tests 
+
+
+# CONTINUOUS 
+bacillota_phylum_total_scfa <- 
+  phylum_df %>%
+  dplyr::filter(Phylum == "Bacillota") %>%
+  ggplot(aes(x = total_scfa, y = Abundance)) + 
+  geom_point(aes(color = status)) + 
+  theme_bw() + 
+  geom_smooth(method = "lm",  formula = y ~ poly(x, 2)) + 
+  labs(title = "Actinomycetota Phylum") + 
+  scale_color_manual(values = status_colors) + 
+  theme(legend.position = "none") +
+  geom_text(aes(label = host_subject_id), 
+            vjust = -0.5, size = 2.5, check_overlap = TRUE) 
+
+# Collect both of the plots together into one 
+bacillota_phylum_status + bacillota_phylum_total_scfa + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+INTERPRETATION #4: Based on these phylum-level analyses, were there any phyla that you were able to identify to focus on moving forward for deeper taxonomic analyses? Why?
+Based on the two phyla actynomiceta seems the most interesting with a possibly more strong correlation and certain individuals that show a significant increase in scfa production in the treatment, going forward I will focus more on Butyrate.
+
+## B. Genus
+
+Let's first calculate the genus data frame. 
+
+```{r genus-actino-plots, fig.width=12, fig.height=4}
+# Calculate the Family relative abundance 
+# Note: The read depth MUST be normalized in some way: scale_reads
+genus_df <- 
+  scaled_physeq %>%
+  # agglomerate at the phylum level 
+  tax_glom(taxrank = "Genus") %>% 
+  # Transform counts to relative abundance 
+  transform_sample_counts(function (x) {x/sum(x)}) %>%
+  # Melt to a long format 
+  psmelt()
+```
+
+### B1. Actinomycetota genus
+
+```{r actino-genus, fig.width=6, fig.height=6}
+# Actinobacteriota
+# Plot genus 
+actino_genus_status <- 
+  genus_df %>%
+  dplyr::filter(Phylum == "Actinomycetota") %>%
+   dplyr::filter(Genus %in% "Bifidobacterium") %>%
+  # At first, plot all of the genera and then subset the ones that have intersting trends
+  # build the plot 
+  ggplot(aes(x = status, y = Abundance, 
+             fill = status, color = status)) + 
+  facet_wrap(.~Genus, scales = "free_y", nrow = 1) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + # outliers not plotted here in boxplot 
+  geom_jitter() + 
+  theme_bw() + 
+  labs(title = "Actinomycetota Genera") + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+        legend.position = "none")
+
+# Plot genus: Continuous 
+actino_genus_butyrate <- 
+  genus_df %>%
+  dplyr::filter(Phylum == "Actinomycetota") %>%
+  dplyr::filter(Genus %in% "Bifidobacterium") %>%
+  # build the plot 
+  ggplot(aes(x = Butyrate, y = Abundance)) + 
+  facet_wrap(.~Genus, scales = "free_y", nrow = 1) + 
+  geom_point(aes(color = status)) +  theme_bw() + 
+  geom_smooth(method = "lm",  formula = y ~ poly(x, 2)) + 
+  labs(title = "Actinomycetota Genera") + 
+  scale_color_manual(values = status_colors) + 
+  theme(legend.position = "none")
+
+# Collect the Actinomycetota Plots
+actino_genus_status / actino_genus_butyrate + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+### B2. Bacillota genus
+
+```{r bacillota-family, fig.width=6, fig.height=6}
+bacillota_family_status <- 
+  genus_df %>%
+  dplyr::filter(Phylum == "Bacillota") %>%
+   dplyr::filter(Family %in% "Ruminococcaceae") %>%
+  ggplot(aes(x = status, y = Abundance, 
+             fill = status, color = status)) + 
+  facet_wrap(.~Genus, scales = "free_y", nrow = 1) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + # outliers not plotted here in boxplot 
+  geom_jitter() + 
+  theme_bw() + 
+  labs(title = "Bacillota Genera") + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+        legend.position = "none")
+
+# Plot genus: Continuous 
+bacillota_family_butyrate <- 
+  genus_df %>%
+  dplyr::filter(Phylum == "Bacillota") %>%
+   dplyr::filter(Family %in% "Ruminococcaceae") %>%
+  # build the plot 
+  ggplot(aes(x = Butyrate, y = Abundance)) + 
+  facet_wrap(.~Genus, scales = "free_y", nrow = 1) + 
+  geom_point(aes(color = status)) +  theme_bw() + 
+  geom_smooth(method = "lm",  formula = y ~ poly(x, 2)) + 
+  labs(title = "Bacillota Genera") + 
+  scale_color_manual(values = status_colors) + 
+  theme(legend.position = "none")
+
+# Collect the Bacillota Plots
+bacillota_family_status / bacillota_family_butyrate + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+
+```
+
+
+```{r bacillota-genus, fig.width=6, fig.height=6}
+# Plot genus 
+bacillota_genus_status <- 
+  genus_df %>%
+  dplyr::filter(Phylum == "Bacillota") %>%
+   dplyr::filter(Genus %in% c("Mediterraneibacter", "Ruminococcus")) %>%
+  ggplot(aes(x = status, y = Abundance, 
+             fill = status, color = status)) + 
+  facet_wrap(.~Genus, scales = "free_y", nrow = 1) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + # outliers not plotted here in boxplot 
+  geom_jitter() + 
+  theme_bw() + 
+  labs(title = "Bacillota Genera") + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+        legend.position = "none")
+
+# Plot genus: Continuous 
+bacillota_genus_butyrate <- 
+  genus_df %>%
+  dplyr::filter(Phylum == "Bacillota") %>%
+   dplyr::filter(Genus %in% c("Mediterraneibacter", "Ruminococcus")) %>%
+  # build the plot 
+  ggplot(aes(x = Butyrate, y = Abundance)) + 
+  facet_wrap(.~Genus, scales = "free_y", nrow = 1) + 
+  geom_point(aes(color = status)) +  theme_bw() + 
+  geom_smooth(method = "lm",  formula = y ~ poly(x, 2)) + 
+  labs(title = "Bacillota Genera") + 
+  scale_color_manual(values = status_colors) + 
+  theme(legend.position = "none")
+
+# Collect the Bacillota Plots
+bacillota_genus_status / bacillota_genus_butyrate + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+INTERPRETATION #5: Please make some plots of mid-level taxonomic ranks (e.g. Genus, Family, Order) as it relates to your scientific question. Were there any changes in the mid-level taxonomic trends compared to the phylum-level results? What does that tell you about that taxonomic group?
+I found the mid levels group did not particularly help to respond my scientific question, the microbiome is quite stable and I am more interesting in seeing the degraders of inulin and butyrate producers, because of this mid-level analysis is diluted by unrelated taxa.
+Bifidobacterium did show a slight trend but with my subset of data a lot of the species within the Genus are not present.
+
+## C. ASV level
+
+```{r ASV-plots, fig.width=12, fig.height=4}
+# Calculate the Family relative abundance 
+# Note: The read depth MUST be normalized in some way: scale_reads
+ASV_df <- 
+  scaled_physeq %>%
+  # Prune out ASVs that have fewer than 100 counts! 
+  ## LOOK AT HOW MANY ARE REMOVED! We scaled to 1,962 reads! 
+  prune_taxa(taxa_sums(.) >= 196, .) %>%
+  # agglomerate at the phylum level 
+  tax_glom(taxrank = "ASV") %>% 
+  # Transform counts to relative abundance 
+  transform_sample_counts(function (x) {x/sum(x)}) %>%
+  # Melt to a long format 
+  psmelt()
+```
+
+### C1. Actinomycetota ASVs 
+
+```{r actino-asvs, fig.width=6, fig.height=8}
+# Calculate top couple of ASVs 
+# Make a list of phyla the top phyla 
+top_actino_ASVs <- 
+  ASV_df %>%
+  dplyr::filter(Phylum == "Actinomycetota") %>%
+  group_by(ASV) %>%
+  summarize(mean_Abundance = mean(Abundance)) %>%
+  dplyr::filter(mean_Abundance > 0.005) %>%
+  pull(ASV)
+
+# Actinobacteriota
+# Plot ASVs 
+actino_asv_status <- 
+  ASV_df %>%
+  dplyr::filter(ASV %in% top_actino_ASVs) %>%
+  # build the plot 
+  ggplot(aes(x = status, y = Abundance, 
+             fill = status, color = status)) + 
+  facet_wrap(Genus~ASV, scales = "free_y", nrow = 2) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + # outliers not plotted here in boxplot 
+  geom_jitter() + 
+  theme_bw() + 
+  labs(title = "Actinomycetota ASVs") + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+        legend.position = "none")
+
+# Plot ASVs: Continuous 
+actino_asv_butyrate <- 
+  ASV_df %>%
+  dplyr::filter(ASV %in% top_actino_ASVs) %>%
+  # build the plot 
+  ggplot(aes(x = Butyrate, y = Abundance)) + 
+  facet_wrap(Genus~ASV, scales = "free_y", nrow = 2) + 
+  geom_point(aes(color = status)) +  theme_bw() + 
+  geom_smooth(method = "lm",  formula = y ~ poly(x, 2)) + 
+  labs(title = "Actinomycetota ASVs") + 
+  scale_color_manual(values = status_colors) + 
+  theme(legend.position = "none")
+
+# Collect the Actinomycetota Plots
+actino_asv_status / actino_asv_butyrate + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+### C2. Bacillota ASVs
+
+```{r bacillota-asvs, fig.width=10, fig.height=8}
+# Calculate top couple of ASVs 
+# Make a list of phyla the top phyla 
+top_bacillota_ASVs <- 
+  ASV_df %>%
+  dplyr::filter(Phylum == "Bacillota") %>%
+  group_by(ASV) %>%
+  summarize(mean_Abundance = mean(Abundance)) %>%
+  dplyr::filter(mean_Abundance > 0.005) %>%
+  pull(ASV)
+
+# Plot ASVs: Station 
+bacillota_asv_status <- 
+  ASV_df %>%
+  # Subset for more abundant ASVs
+  dplyr::filter(ASV %in% top_bacillota_ASVs) %>%
+  # build the plot 
+  ggplot(aes(x = status, y = Abundance, 
+             fill = status, color = status)) + 
+  facet_wrap(Genus~ASV, scales = "free_y", nrow = 2) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + # outliers not plotted here in boxplot 
+  geom_jitter() + 
+  theme_bw() + 
+  labs(title = "bacillota ASVs > 0.05%") + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+        legend.position = "none")
+
+# Plot ASVs: Continuous 
+bacillota_asv_butyrate <- 
+  ASV_df %>%
+  dplyr::filter(ASV %in% top_bacillota_ASVs) %>%
+  # build the plot 
+  ggplot(aes(x = Butyrate, y = Abundance)) + 
+  facet_wrap(Genus~ASV, scales = "free_y", nrow = 2) + 
+  geom_point(aes(color = status)) +  theme_bw() + 
+  geom_smooth(method = "lm",  formula = y ~ poly(x, 2)) + 
+  labs(title = "bacillota ASVs > 0.05%") + 
+  scale_color_manual(values = status_colors) + 
+  theme(legend.position = "none")
+
+# Collect the Actinomycetota Plots
+bacillota_asv_status / bacillota_asv_butyrate + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+### Extra ASVS
+```{r most-abundant-and-r.bromi, fig.width=10, fig.height=8}
+target_df <- 
+  ASV_df %>%
+  dplyr::filter(ASV %in% c("ASV_0001", "ASV_0070"))
+
+target_asv_status <- 
+  target_df %>%
+  ggplot(aes(x = status, y = Abundance, 
+             fill = status, color = status)) + 
+  facet_wrap(Genus~ASV, scales = "free_y", nrow = 2) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + 
+  geom_jitter() + 
+  theme_bw() + 
+  labs(title = "Selected ASVs and Faecalibacterium prausnitzii") + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+        legend.position = "none")
+
+# Plot: Abundance vs Butyrate (continuous)
+target_asv_butyrate <- 
+  target_df %>%
+  ggplot(aes(x = Butyrate, y = Abundance)) + 
+  facet_wrap(Genus~ASV, scales = "free_y", nrow = 2) + 
+  geom_point(aes(color = status)) +  
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2)) + 
+  theme_bw() + 
+  labs(title = "Selected ASVs and Faecalibacterium prausnitzii vs Butyrate") + 
+  scale_color_manual(values = status_colors) + 
+  theme(legend.position = "none")
+
+# Combine plots
+target_asv_status / target_asv_butyrate + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+
+### prausnitzii ASVs
+```{r prausnitzii-ASV, fig.width=10, fig.height=8}
+prausnitzii_df <- 
+  ASV_df %>%
+  dplyr::filter(ASV %in% c("ASV_0084", "ASV_0202", "ASV_0018", "ASV_0007"))
+
+prausnitzii_asv_status <- 
+  prausnitzii_df %>%
+  ggplot(aes(x = status, y = Abundance, 
+             fill = status, color = status)) + 
+  facet_wrap(Genus~ASV, scales = "free_y", nrow = 2) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA) + 
+  geom_jitter() + 
+  theme_bw() + 
+  labs(title = "Selected ASVs and Faecalibacterium prausnitzii") + 
+  scale_color_manual(values = status_colors) + 
+  scale_fill_manual(values = status_colors) + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+        legend.position = "none")
+
+# Plot: Abundance vs Butyrate (continuous)
+prausnitzii_asv_butyrate <- 
+  prausnitzii_df %>%
+  ggplot(aes(x = Butyrate, y = Abundance)) + 
+  facet_wrap(Genus~ASV, scales = "free_y", nrow = 2) + 
+  geom_point(aes(color = status)) +  
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2)) + 
+  theme_bw() + 
+  labs(title = "Selected ASVs and Faecalibacterium prausnitzii vs Butyrate") + 
+  scale_color_manual(values = status_colors) + 
+  theme(legend.position = "none")
+
+# Combine plots
+prausnitzii_asv_status / prausnitzii_asv_butyrate + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A")
+```
+#heatmap
+```{r degraders-butyrate,  fig.width=10, fig.height=8}
+
+# Subset your relevant taxa (e.g., R. bromii, B. faecale/adol)
+primary_df <- ASV_df %>%
+  filter(ASV %in% c("ASV_0070", "ASV_0017", "ASV_0027", "ASV_0041", "ASV_0001", "ASV_0089"))
+
+secondary_df <- ASV_df %>%
+  filter(ASV %in% c("ASV_0007", "ASV_0018", "ASV_0084", "ASV_0202", "ASV_0062", "	
+ASV_0063", "ASV_0086"))
+
+# Add Species labels
+species_labels <- c(
+  "ASV_0070" = "R. bromii",
+  "ASV_0017" = "Bifido. spp.",
+  "ASV_0027" = "Bifido. spp.",
+  "ASV_0041" = "Bifido. spp.",
+  "ASV_0001" = "Bifido. spp.",
+  "ASV_0089" = "B. bifidum",
+  "ASV_0007" = "F. prausnitzii",
+  "ASV_0018" = "F. prausnitzii",
+  "ASV_0084" = "F. prausnitzii",
+  "ASV_0202" = "F. prausnitzii",
+  "ASV_0062" = "R. faecis",
+  "ASV_0063" = "R. faecis",
+  "ASV_0086" = "R. inulinivorans"
+)
+
+# Mark Primary vs Secondary
+primary_df <- primary_df %>% mutate(Species = species_labels[ASV], Group = "Primary")
+secondary_df <- secondary_df %>% mutate(Species = species_labels[ASV], Group = "Secondary")
+
+# Merge together
+all_targets_df <- bind_rows(primary_df, secondary_df)
+
+# 2. Summarize per subject
+abundance_summary <- all_targets_df %>%
+  group_by(Species, Group, host_subject_id, status) %>%
+  summarise(mean_abundance = mean(Abundance), .groups = "drop") %>%
+  pivot_wider(names_from = status, values_from = mean_abundance) %>%
+  filter(!is.na(before) & !is.na(during)) %>%
+  mutate(
+    log2FC = log2((during + 1e-6) / (before + 1e-6))
+  )
+
+# 3. Statistical test: Paired Wilcoxon
+stats_results <- abundance_summary %>%
+  group_by(Species, Group) %>%
+  summarise(
+    p_value = wilcox.test(during, before, paired = TRUE)$p.value,
+    mean_log2FC = mean(log2FC),
+    mean_before = mean(before),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    signif_label = if_else(p_value < 0.05, "*", ""),
+    Species = fct_reorder(Species, -mean_log2FC)  # optional: order by mean change
+  )
+stats_results <- stats_results %>%
+  group_by(Group) %>%
+  mutate(Species = fct_reorder(Species, mean_before)) %>%
+  ungroup()
+
+# 4. Main heatmap
+heatmap_plot <- stats_results %>%
+  ggplot(aes(x = "Inulin", y = Species, fill = mean_log2FC)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(round(mean_log2FC, 1), signif_label)), size = 4) +
+  scale_fill_gradientn(
+  colors = c("blue", "white", "red"),
+  values = scales::rescale(c(-2, 0, 4)),
+  limits = c(-2, 4),
+  name = "log₂(During/Before)"
+) +
+  facet_grid(Group ~ ., scales = "free_y", space = "free")  + 
+  labs(x = NULL, y = NULL, title = "Log2 Fold Change During vs Before (Inulin)") +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text.y = element_text(angle = 0, vjust = 0.5, face = "bold"), 
+    panel.spacing.y = unit(1, "lines"),
+    panel.grid = element_blank(),
+    legend.position = "bottom"
+  )
+
+# 5. Right bar plot = Average % before inulin
+barplot_plot <- stats_results %>%
+  ggplot(aes(x = mean_before * 100, y = Species)) +
+  geom_bar(stat = "identity", fill = "gray40", width = 0.7) +
+   facet_grid(Group ~ ., scales = "free_y", space = "free") +
+  labs(x = "Mean abundance before (%)", y = NULL) +
+  theme_minimal(base_size = 13) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_blank(),
+    axis.text.y = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid = element_blank()
+  )
+
+# 6. Combine side-by-side
+final_plot <- heatmap_plot + barplot_plot +
+  plot_layout(widths = c(3, 1)) +
+  plot_annotation(tag_levels = "A")
+
+# 7. Show final plot
+final_plot
+```
+
+# dot plot
+```{r dot-plot, fig.width=10, fig.height=8}
+
+# 1. Calculate mean abundance per subject
+abundance_summary_dot <- all_targets_df %>%
+  group_by(Species, Group, host_subject_id, status) %>%
+  summarise(mean_abundance = mean(Abundance) * 100, .groups = "drop")  
+
+# 2. Reshape to wide (before / during in same row)
+abundance_dot_wide <- abundance_summary_dot %>%
+  pivot_wider(names_from = status, values_from = mean_abundance) %>%
+  filter(!is.na(before) & !is.na(during))
+
+# 3. Plot
+dot_plot <- abundance_dot_wide %>%
+  pivot_longer(cols = c(before, during), names_to = "timepoint", values_to = "percent_abundance") %>%
+  ggplot(aes(x = timepoint, y = percent_abundance, group = host_subject_id)) +
+  geom_point(aes(color = Species), size = 2) +
+  geom_line(aes(color = Species), alpha = 0.5) +
+  facet_wrap(~Species, scales = "free_y", nrow = 1) +
+  scale_x_discrete(labels = c("before" = "Bef", "during" = "Dur")) +
+  labs(x = NULL, y = "% Abundance") +
+  theme_bw(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+    legend.position = "none",
+    panel.grid = element_blank()
+  )
+
+# 4. Display
+dot_plot
+```
+
+# boxplot butyrate change
+```{r butyrate-box, fig.width=10, fig.height=8}
+# 2. Calculate Δbutyrate (during - before) per host_subject_id
+butyrate_change_df_box <- all_targets_df %>%
+  group_by(Species, Group, host_subject_id, status) %>%
+  summarise(
+    mean_butyrate = mean(Butyrate, na.rm = TRUE),
+    mean_abundance = mean(Abundance),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(names_from = status, values_from = c(mean_butyrate, mean_abundance)) %>%
+  filter(!is.na(mean_butyrate_before) & !is.na(mean_butyrate_during)) %>%
+  mutate(
+    delta_butyrate = mean_butyrate_during - mean_butyrate_before,
+    delta_abundance = mean_abundance_during - mean_abundance_before,
+    abundance_change_group = if_else(delta_abundance > 0, ">0", "≤0")  # split based on abundance change
+  )
+
+# 3. Plot
+butyrate_boxplot <- butyrate_change_df_box %>%
+  ggplot(aes(x = abundance_change_group, y = delta_butyrate, fill = Species)) +
+  geom_boxplot(alpha = 0.4, outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 2) +
+  facet_wrap(~Species, scales = "free_x", nrow = 1) +
+  stat_compare_means(
+    aes(group = abundance_change_group),   # <--- force grouping
+    method = "wilcox.test", 
+    paired = FALSE, 
+    label = "p.signif", 
+    hide.ns = FALSE        # <--- show even non-significant comparisons
+  ) +
+  labs(x = NULL, y = "Δbutyrate (mmol/kg)") +
+  theme_bw(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+    panel.grid = element_blank(),
+    legend.position = "none"
+  )
+
+# 4. Display
+butyrate_boxplot
+```
+
+#host increase in R.bromii
+```{r dot-plot,  fig.width=10, fig.height=8}
+
+# 1. Pivot butyrate data wider
+butyrate_change_df <- ASV_df %>%
+  select(host_subject_id, status, Butyrate) %>%
+  filter(!is.na(Butyrate)) %>%
+  group_by(host_subject_id, status) %>%
+  summarise(Butyrate = mean(Butyrate), .groups = "drop") %>%
+  pivot_wider(names_from = status, values_from = Butyrate)
+
+
+# 2. Calculate if R. bromii (ASV_0070) increased
+b_bifidum_changes <- ASV_df %>%
+  filter(ASV == "ASV_0089") %>%
+  group_by(host_subject_id, status) %>%    # average per subject per status
+  summarise(Abundance = mean(Abundance), .groups = "drop") %>%
+  pivot_wider(names_from = status, values_from = Abundance) %>%
+  mutate(increased = if_else(during > before, "B. bifidum increased", "Not increased"))
+
+# 3. Merge classification into butyrate data
+butyrate_change_df <- butyrate_change_df %>%
+  filter(!is.na(before) & !is.na(during)) %>%
+  arrange(before) %>%
+  mutate(subject_order = factor(host_subject_id, levels = host_subject_id))
+
+# 4. Arrange by initial butyrate
+butyrate_change_df <- butyrate_change_df %>%
+  arrange(before) %>%
+  mutate(subject_order = factor(host_subject_id, levels = host_subject_id))
+
+# 5. Merge the "increased" classification into butyrate data
+butyrate_change_df <- butyrate_change_df %>%
+  left_join(b_bifidum_changes %>% select(host_subject_id, increased), by = "host_subject_id")
+
+# 6. create long for status difference
+#pivot for shape
+butyrate_long <- butyrate_change_df %>%
+  pivot_longer(cols = c(before, during),
+               names_to = "status",
+               values_to = "butyrate")
+
+# 6. Create the Plot
+
+butyrate_dotplot <- butyrate_long %>%
+  ggplot(aes(x = butyrate, y = subject_order, group = host_subject_id)) +
+  geom_line(aes(color = increased), size = 0.5) +
+  geom_point(aes(shape = status, color = increased), size = 2.5, fill = "white") +
+  scale_shape_manual(values = c("before" = 16, "during" = 17)) +  # 16 = circle, 17 = triangle
+  scale_color_manual(values = c("B. bifidum increased" = "purple4", "Not increased" = "gray50")) +
+  theme_bw() +
+  labs(x = "Butyrate (mmol/kg)", y = NULL) +
+  theme(
+    legend.position = "bottom",
+    panel.grid = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+# Show plot
+butyrate_dotplot
+```
+
+# Combine the plots to replicate the last in the paper
+
+```{r dot-plot,  fig.width=20, fig.height=13}
+left_part <- dot_plot / butyrate_boxplot  # Both use Species
+final_combined_plot <- left_part | butyrate_dotplot +
+  plot_layout(widths = c(2, 1)) +    
+  plot_annotation(tag_levels = "A")
+
+# Show it
+final_combined_plot
+```
+
+<span style="color: red;">INTERPRETATION #6: Were the most abundant ASVs in your dataset represented in your ASV-level plots? If not, please go back and plot them specifically. (Hint: Remember that we ordered our ASV names by abundance across the entire dataset. Therefore, ASV_0001 will be the most abundant, ASV_0007 will be the 7th most abundant and so on.)</span>
+
+It was not, and it is actually a good responder in terms of growth to both status and butyrate levels once I plotted it.
+
+<span style="color: red;">INTERPRETATION #7: Please make some plots at the ASV level as it relates to your scientific question. Were there any ASVs that were especially related to trends that you saw? Did a specific phylogenetic group all show the same trends (e.g. like the Actinomycetota ASVs above)? Or did the ASVs have various, likely niche-specific responses (similar to the Cyanobacteriota above)??</span>
+
+There were a lot more niche specific responses, I tried to look into the known primary degraders of fermentable fiber and butyrate producers, the degraders did have a response, the secondary butyrate producers dont seem to have a strong response to the treatment but this could be further explored with different graphs that I can replicate from the original paper.
+
+<span style="color: red;">INTERPRETATION #8: Now, do a quick literature or google search and look back in the paper that you may be replicating (if applicable). Does your ASV-level changes represent something that is currently known? Or is this a novel result? What did you learn about this ASV or a group of ASVs in your dataset?</span>
+
+They represent the degraders of fermentable fiber (inulin in this case) and butyrate producers, they are expected, what is unexpected is that ASVs not related to fermentable fiber had a in some cases even a stronger relationship to status than the degraders, but this could be caused by host differences.
+
+
+# Session Information 
+For reproducibility 
+```{r session_info}
+devtools::session_info()
+```

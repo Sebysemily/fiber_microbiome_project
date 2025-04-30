@@ -20,7 +20,7 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,
-                      fig.path = "../figures/06_Ordination")
+                      fig.path = "../../figures/06_Ordination")
 
 ```
 
@@ -105,14 +105,7 @@ archaeal_rooted_physeq
 # Intuition check on seq depth
 min(sample_sums(archaeal_rooted_physeq))
 ```
-## Create metadata
-```{r metadata}
-# Create Metadata_df 
-metadata_df <- 
-  archaeal_rooted_physeq %>%
-  sample_data() %>%
-  data.frame()
-```
+
 # Normalizing the Read Depth 
 
 ## 2. Explore the Raw Read Counts 
@@ -175,13 +168,21 @@ There is an outlier with unusually high count of ASVs so I will keep an eye on i
 ```{r scale-reads, fig.width=6, fig.height=3}
 min(sample_sums(archaeal_rooted_physeq))
 
-# Scale the reads 
+# Scale the reads
 scaled_physeq <- 
   archaeal_rooted_physeq %>%
-  scale_reads(round = "matround")
+  scale_reads(round = "matround")  
 
 # Look at it 
 scaled_physeq
+
+# Save it
+save(scaled_physeq, file ="data/06_Ordination/scaled_physeq.RData")
+
+#Prune NA values for beta diversity analysis
+scaled_physeq <-
+  scaled_physeq %>%
+  subset_samples(!is.na(total_scfa))
 
 # Look at it more!
 #View(data.frame(otu_table(archaeal_rooted_physeq)))
@@ -238,33 +239,22 @@ scaledSeq_vs_numASV_plot <-
 # Put the two plots together.
 scaledSeq_histogram + scaledSeq_vs_numASV_plot +
   plot_annotation(tag_levels = "A")
+
+
 ```
 
+## Create metadata after pruning
+```{r metadata}
+# Create Metadata_df after the prune
+metadata_df <- 
+  scaled_physeq %>%
+  sample_data() %>%
+  data.frame()
+```
 <span style="color: red;">INTERPRETATION #3:  Evaluate the scaled read count plots above. Are the total number of sequences across all of your samples in the same general range? What is the minimum and maximum (i.e., the range) of the sequencing depth? How was the relationship with the number of ASVs modified after scaling the read counts?</span>
 
 They are all in the same range, the minimum is 7191 and the maximum is 7229 ( range of 38), the range is 0.5~% which is really good. The relationship stayed quite similar after scaling, with the scatter plot distribution skewing a bit to the left including the outlier sample with the most ASVs.
-## sorting out NA values
-Since almost a 3rd of the propionate values are missing and this unables me to do a permanova with total_scfa I will do a simple imputation to change the NA values of all the scfas and calculate the total_scfa again with the sum
-```{r NA-values}
-## sorting out NA values
-# Impute missing values in acetate with median
-metadata_df$acetate[is.na(metadata_df$acetate)] <- median(metadata_df$acetate, na.rm = TRUE)
 
-# Impute missing values in butyrate with median
-metadata_df$Butyrate[is.na(metadata_df$Butyrate)] <- median(metadata_df$Butyrate, na.rm = TRUE)
-
-#Impute missing values in propionate with the median 
-metadata_df$propionate[is.na(metadata_df$propionate)] <- median(metadata_df$propionate, na.rm = TRUE)
-
-# Recalculate total SCFA
-metadata_df$total_scfa <- metadata_df$acetate + metadata_df$Butyrate + metadata_df$propionate
-
-#Intuition check
-sum(is.na(metadata_df$acetate))      
-sum(is.na(metadata_df$Butyrate))  
-sum(is.na(metadata_df$propionate))
-sum(is.na(metadata_df$total_scfa))   
-```
 ##Calculate dissimilarity
 
 ```{r Calc-dissimilarity}
@@ -390,7 +380,7 @@ permutest(dispr_bray_Butyrate)
 
 <span style="color: red;">INTERPRETATION #6: Using the above example to guide you, run the appropriate betadisper() and permutest() for your scientific question and interpret the results. What biological conclusion can you draw from your dispersion analysis?</span>
 
-Based on the dispersion analysis I can conclude that only propionate has significant dispersion making propionate analysis less rigid, while all the other variables had not significant dispersion so their anova is valid.
+Based on the dispersion analysis I can conclude that only propionate has significant dispersion making propionate analysis less rigid, while all the other variables had not significant dispersion.
 
 
 <span style="color: red;">INTERPRETATION #7: Taking into account both the betadisper()/permutest() and the PERMANOVA (adonis2()) test that you ran, what biological conclusion can you draw regarding your data?</span>

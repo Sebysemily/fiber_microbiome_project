@@ -2,7 +2,18 @@
 title: "Biodiversity accross a fiber treatment"
 author: "Roger Calvas"
 date: "`r Sys.Date()`"
-output: html_document
+output: 
+  html_document: 
+    code_folding: show
+    theme: spacelab
+    highlight: pygments
+    keep_md: no
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+      toc_depth: 3
+  keep_md: true  
 editor_options: 
   chunk_output_type: console
 ---
@@ -207,9 +218,9 @@ Sequencing depth is likely sufficient, all curves plateau even in richness. Ther
 shapiro.test(metadata_df$Butyrate)
 # Test of the data is normal for the continuous value of acetate
 shapiro.test(metadata_df$acetate)
-# Test of the data is normal for the continuous value of butyrate
+# Test of the data is normal for the continuous value of propionate
 shapiro.test(metadata_df$propionate)
-# Test of the data is normal for the continuous value of butyrate
+# Test of the data is normal for the continuous value of total_scfa
 shapiro.test(metadata_df$total_scfa)
 ```
 Now for the concentration of the 3 scf and total scfa, all of them had p-value<0.05 so none of them are normal, now we can look into richness
@@ -232,77 +243,169 @@ shapiro.test(obs_whole_rich_df$qD)
 ```
 Now richness is not normal, so we need to use non parametric tests.
 
-Kruskal wallis for the different scf
-```{r scf, fig.height=4, fig.width=4}
-# Calculate the kruskall-wallis stats
-kw_status_butyrate <- 
-  obs_whole_rich_df %>%
-  kruskal_test(Butyrate ~ status) 
+###I have paired data (multiple data from the same host before and during) so I am going to run a repeated measures Anova, first prunning the NA values for repeatability. Will run chunks per SCFA type and total_scfa
 
-# Look at it 
-kw_status_butyrate
+#Total SCFA RM-Anova
+```{r total-scfa-RM, fig.height=4, fig.width=4}
+# Prune and average total_scfa 
+## Prunning breaks the repeated structure of the data, so I will average the different samples per subject into one to approximate the rm ANOVA design.
+scfa_summary_df_total_scfa <- metadata_df %>%
+  filter(!is.na(total_scfa)) %>%
+  group_by(host_subject_id, status) %>%
+  summarise(mean_total_scfa = mean(total_scfa), .groups = "drop") %>%
+  pivot_wider(names_from = status, values_from = mean_total_scfa) %>%
+  drop_na()
+# Reshape for Anova
+scfa_long_df_total_scfa <- scfa_summary_df_total_scfa %>%
+  pivot_longer(cols = c(before, during), names_to = "status", values_to = "total_scfa")
+# Repeated measures Anova
+scfa_aov_total_scfa <- aov(total_scfa ~ status + Error(host_subject_id), data = scfa_long_df_total_scfa)
+summary(scfa_aov_total_scfa)
 
-# Calculate the kruskall-wallis stats
-kw_status_acetate <- 
-  obs_whole_rich_df %>%
-  kruskal_test(acetate ~ status) 
+# Check rigidity of the model with residuals
+resid_vals_total_scfa <- residuals(scfa_aov_total_scfa[["Within"]])
+#Check normality of residuals
+shapiro.test(resid_vals_total_scfa)
 
-# Look at it 
-kw_status_acetate
+# differences in before and after
+mean_before_total_scfa <- mean(scfa_summary_df_total_scfa$before)
+mean_during_total_scfa <- mean(scfa_summary_df_total_scfa$during)
+abs_change_total_scfa <- mean_during_total_scfa - mean_before_total_scfa
+sd_before_total_scfa <- sd(scfa_summary_df_total_scfa$before)
+sd_during_total_scfa <- sd(scfa_summary_df_total_scfa$during)
+percent_change_total_scfa <- 100 * abs_change_total_scfa / mean_before_total_scfa
 
-# Calculate the kruskall-wallis stats
-kw_status_propionate <- 
-  obs_whole_rich_df %>%
-  kruskal_test(propionate ~ status) 
-
-# Look at it 
-kw_status_propionate
-
-# Calculate the kruskall-wallis stats
-kw_status_total_scfa <- 
-  obs_whole_rich_df %>%
-  kruskal_test(total_scfa ~ status) 
-
-# Look at it 
-kw_status_total_scfa
-
-#Going forward I am going to mostly focus on the total change of scfa
-
-# post-hoc test with Dunn's Test
-dunn_status_total_scfa <- 
-  obs_whole_rich_df %>%
-  dunn_test(total_scfa ~ status, p.adjust.method = "fdr") %>%
-  add_xy_position(x = "status")
-
-# look at the pairwise
-dunn_status_total_scfa
+mean_before_total_scfa
+mean_during_total_scfa
+sd_before_total_scfa
+sd_during_total_scfa
+percent_change_total_scfa
 ```
 
+# acetate RM-Anova
+```{r acetate-RM, fig.height=4, fig.width=4}
+# Prune and average acetate
+## Prunning breaks the repeated structure of the data, so I will average the different samples per subject into one to approximate the rm ANOVA design.
+scfa_summary_df_acetate <- metadata_df %>%
+  filter(!is.na(acetate)) %>%
+  group_by(host_subject_id, status) %>%
+  summarise(mean_acetate = mean(acetate), .groups = "drop") %>%
+  pivot_wider(names_from = status, values_from = mean_acetate) %>%
+  drop_na()
+# Reshape for Anova
+scfa_long_df_acetate <- scfa_summary_df_acetate %>%
+  pivot_longer(cols = c(before, during), names_to = "status", values_to = "acetate")
+# Repeated measures Anova
+scfa_aov_acetate <- aov(acetate ~ status + Error(host_subject_id), data = scfa_long_df_acetate)
+summary(scfa_aov_acetate)
+
+# Check rigidity of the model with residuals
+resid_vals_acetate <- residuals(scfa_aov_acetate[["Within"]])
+#Check normality of residuals
+shapiro.test(resid_vals_acetate)
+
+# differences in before and after
+mean_before_acetate <- mean(scfa_summary_df_acetate$before)
+mean_during_acetate <- mean(scfa_summary_df_acetate$during)
+abs_change_acetate <- mean_during_acetate - mean_before_acetate
+sd_before_acetate <- sd(scfa_summary_df_acetate$before)
+sd_during_acetate <- sd(scfa_summary_df_acetate$during)
+percent_change_acetate <- 100 * abs_change_acetate / mean_before_acetate
+
+mean_before_acetate
+mean_during_acetate
+sd_before_acetate
+sd_during_acetate
+percent_change_acetate
+```
+# Butyrate RM-Anova
+```{r Butyrate-RM, fig.height=4, fig.width=4}
+# Prune and average Butyrate
+## Prunning breaks the repeated structure of the data, so I will average the different samples per subject into one to approximate the rm ANOVA design.
+scfa_summary_df_Butyrate <- metadata_df %>%
+  filter(!is.na(Butyrate)) %>%
+  group_by(host_subject_id, status) %>%
+  summarise(mean_Butyrate = mean(Butyrate), .groups = "drop") %>%
+  pivot_wider(names_from = status, values_from = mean_Butyrate) %>%
+  drop_na()
+# Reshape for Anova
+scfa_long_df_Butyrate <- scfa_summary_df_Butyrate %>%
+  pivot_longer(cols = c(before, during), names_to = "status", values_to = "Butyrate")
+# Repeated measures Anova
+scfa_aov_Butyrate <- aov(Butyrate ~ status + Error(host_subject_id), data = scfa_long_df_Butyrate)
+summary(scfa_aov_Butyrate)
+
+# Check rigidity of the model with residuals
+resid_vals_Butyrate <- residuals(scfa_aov_Butyrate[["Within"]])
+#Check normality of residuals
+shapiro.test(resid_vals_Butyrate)
+
+# differences in before and after
+mean_before_Butyrate <- mean(scfa_summary_df_Butyrate$before)
+mean_during_Butyrate <- mean(scfa_summary_df_Butyrate$during)
+abs_change_Butyrate <- mean_during_Butyrate - mean_before_Butyrate
+sd_before_Butyrate <- sd(scfa_summary_df_Butyrate$before)
+sd_during_Butyrate <- sd(scfa_summary_df_Butyrate$during)
+percent_change_Butyrate <- 100 * abs_change_Butyrate / mean_before_Butyrate
+
+mean_before_Butyrate
+mean_during_Butyrate
+sd_before_Butyrate
+sd_during_Butyrate
+percent_change_Butyrate
+```
+#Propionate RM-Anova
+```{r Propionate-RM, fig.height=4, fig.width=4}
+# Prune and average propionate
+## Prunning breaks the repeated structure of the data, so I will average the different samples per subject into one to approximate the rm ANOVA design.
+scfa_summary_df_propionate <- metadata_df %>%
+  filter(!is.na(propionate)) %>%
+  group_by(host_subject_id, status) %>%
+  summarise(mean_propionate = mean(propionate), .groups = "drop") %>%
+  pivot_wider(names_from = status, values_from = mean_propionate) %>%
+  drop_na()
+# Reshape for Anova
+scfa_long_df_propionate <- scfa_summary_df_propionate %>%
+  pivot_longer(cols = c(before, during), names_to = "status", values_to = "propionate")
+# Repeated measures Anova
+scfa_aov_propionate <- aov(propionate ~ status + Error(host_subject_id), data = scfa_long_df_propionate)
+summary(scfa_aov_propionate)
+
+# Check rigidity of the model with residuals
+resid_vals_propionate <- residuals(scfa_aov_propionate[["Within"]])
+#Check normality of residuals
+shapiro.test(resid_vals_propionate)
+
+# differences in before and after
+mean_before_propionate <- mean(scfa_summary_df_propionate$before)
+mean_during_propionate <- mean(scfa_summary_df_propionate$during)
+abs_change_propionate <- mean_during_propionate - mean_before_propionate
+sd_before_propionate <- sd(scfa_summary_df_propionate$before)
+sd_during_propionate <- sd(scfa_summary_df_propionate$during)
+percent_change_propionate <- 100 * abs_change_propionate / mean_before_propionate
+
+mean_before_propionate
+mean_during_propionate
+sd_before_propionate
+sd_during_propionate
+percent_change_propionate
+```
 #Plotting the total scfa
 ```{r-plot-total-scfa}
 # Salinity by status 
 total_scfa_ggboxplot <- 
-  ggboxplot(obs_whole_rich_df, x = "status", y = "total_scfa", 
+  ggboxplot(scfa_long_df_total_scfa, x = "status", y = "total_scfa", 
           color = "status", fill = "status", alpha = 0.3,
           outlier.shape = NA) + 
-  # Add points
   geom_jitter(aes(color = status)) + 
   scale_color_manual(values = status_colors) + 
   scale_fill_manual(values = status_colors) + 
-  labs(y = "total_scfa (millimoles per kilogram)") + 
-  # Now, let's add the KW results 
-  stat_pvalue_manual(dunn_status_total_scfa, hide.ns = TRUE,
-                      tip.length = 0, step.increase = 0.01) +
-  labs(subtitle = get_test_label(kw_status_total_scfa, detailed = TRUE),
-       caption = get_pwc_label(dunn_status_total_scfa)) + 
+  labs(y = "total SCFA (mmol/kg)", subtitle = "Repeated-Measures ANOVA: F(1,21) = 0.89, p = 0.356") +
   theme_bw() + 
   theme(legend.position = "none",
         axis.title.x = element_blank(),
-        axis.text.x = element_text(angle = 30,
-                                   hjust = 1, 
-                                   vjust = 1))
-
-# Show the plot
+        axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1))
+#Show the plot
 total_scfa_ggboxplot
 
 ```

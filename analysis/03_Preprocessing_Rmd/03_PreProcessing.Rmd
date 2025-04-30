@@ -97,7 +97,7 @@ metadata_df <- read_csv("data/metadata/Metadatafall.csv", col_names = TRUE) %>%
     metadata_df %>%
     left_join(., track_counts_df, by = "sample_names") %>%
     #sample names to the rownames to merge into phyloseq
-    column_to_rownames(var = "sample_names")
+    column_to_rownames(var = "sample_names") 
 #check
   dim(metadata_final_df)
 ```
