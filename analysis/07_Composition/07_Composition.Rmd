@@ -54,7 +54,7 @@ The limitations of relative abundance lies in the interpretation of change, beca
 ## Load Packages 
 ```{r load-packages}
 # Load in the packages 
-pacman::p_load(tidyverse, devtools, DT, phyloseq, patchwork, 
+pacman::p_load(tidyverse, devtools, DT, phyloseq, patchwork, ggpubr, 
                install = FALSE)
 
 # load colors
@@ -812,7 +812,7 @@ butyrate_boxplot
 ```
 
 #host increase in R.bromii
-```{r dot-plot,  fig.width=10, fig.height=8}
+```{r dot-plot-increase,  fig.width=10, fig.height=8}
 
 # 1. Pivot butyrate data wider
 butyrate_change_df <- ASV_df %>%
@@ -876,7 +876,7 @@ butyrate_dotplot
 
 # Combine the plots to replicate the last in the paper
 
-```{r dot-plot,  fig.width=20, fig.height=13}
+```{r final-combined,  fig.width=30, fig.height=23}
 left_part <- dot_plot / butyrate_boxplot  # Both use Species
 final_combined_plot <- left_part | butyrate_dotplot +
   plot_layout(widths = c(2, 1)) +    
