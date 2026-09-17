@@ -13,3 +13,5 @@ figures/**
 */*.RData
 *.RData
 analysis/00_multiqc/its/*
+/analysis/00_multiqc/16s
+/analysis/00_multiqc/16s_multiqc/multiqc_data
