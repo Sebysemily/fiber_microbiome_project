@@ -12,4 +12,4 @@ figures/**
 .Rproj.user
 */*.RData
 *.RData
-
+analysis/00_multiqc/its/*

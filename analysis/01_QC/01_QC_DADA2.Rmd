@@ -1,0 +1,430 @@
+---
+title: "ITS_QC"
+author: "Roger Calvas"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: show
+    theme: spacelab
+    highlight: pygments
+    keep_md: no
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+      toc_depth: 3
+  keep_md: true  
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      fig.align = "center",
+                      fig.path = "../../figures/01_DADA2/")
+```
+
+# Setear variables de ambiente
+
+## Fijar la semilla 
+```{r set-seed}
+# Se puede escoger cualquier numero
+set.seed(9473)
+```
+## Tiempo de ejecucion
+```{r rmd-start}
+# Cuando se empezo a correr el script? 
+start_time <- Sys.time()
+start_time
+```
+
+## Cargar librerias de R
+```{r load-libraries}
+# Carga rápida con pacman
+pacman::p_load(tidyverse, dada2, phyloseq, DT, devtools, patchwork, install = FALSE)
+library( "ShortRead")
+library("Biostrings")
+```
+
+# Objetivos del archivo:
+
+1. Cargar los datos crudos a R.
+2. Visualizar e inspeccionar la calidad.
+3. Filtrar dependiendo de la calidad y quitar primers si fuera necesario.
+4. Crear nuevos archivos con las secuencias que pasaron el filtro.
+5. Inspeccionar la calidad de nuevo.
+6. Calcular estadisticas relacionadas a medir el QC
+
+## Inputs:
+1. Fastq crudos sin adaptadores
+2. Primers utilizados para amplificacion
+
+## Outputs:
+
+1. Plots de calidad pre y post filtro
+2. Plots para inspeccionar la retencion
+3. Fastq post QC con calidad post-filtro
+
+# Cargar datos crudos
+
+```{r load-raw}
+# Fijar la ruta de los raw
+raw_fastqs_path <- "data/its/01_DADA2/raw_fastq"
+
+# Que archivos hay en la ruta?
+head(list.files(raw_fastqs_path))
+# Cuantos archivos hay?
+length(list.files(raw_fastqs_path))
+
+# Crear un vector (conjunto del mismo tipo de dato) de las read forward (R1)
+forward_reads <- list.files(raw_fastqs_path, pattern = "_1.fq.gz", full.names = TRUE)
+
+# Chequeo de sanidad
+stopifnot(length(forward_reads) < length(list.files(raw_fastqs_path)))
+
+# Crear un vector de las reads reverse (R2)
+reverse_reads <-list.files(raw_fastqs_path, pattern = "_2.fq.gz", full.names = TRUE)
+
+# Chequeo de sanidad (ambas listas deberían ser del mismo tamaño)
+stopifnot(length(reverse_reads) < length(list.files(raw_fastqs_path)))
+stopifnot(length(reverse_reads) == length(forward_reads))
+```
+
+# Inspeccionar binning y primers
+
+## Ver la distribucion de calidades 
+```{r inspect-bins}
+# Leer el primer archivo FASTQ de las R1
+fq_test <- readFastq(forward_reads[1])
+
+# Extraer la matriz de calidades Phred
+q_matrix <- as(quality(fq_test), "matrix")
+
+# Imprimir en consola los valores únicos
+bins_reales <- unique(as.vector(q_matrix))
+sort(bins_reales)
+
+# Anotar el output para el paso del modelo de errores
+```
+
+## Identificar e eliminar primers (Se puede saltar en su mayoria en 16s)
+```{r primer-identification}
+# Crear variables con los primers utilizados en la secuenciacion
+FWD <- "GCATCGATGAAGAACGCAGC"
+REV <- "TCCTCCGCTTATTGATATGC"
+# Transformarlos a DNA string para despues usar Biostrings
+FWD_dna <- DNAString(FWD)
+REV_dna <- DNAString(REV)
+
+# Guardar las posibles direcciones del primer en un vector
+FWD.orients <- sapply(
+  c(Forward = FWD_dna,
+    Complement =Biostrings::complement(FWD_dna),
+    Reverse = Biostrings::reverse(FWD_dna),
+    RevComp = Biostrings::reverseComplement(FWD_dna)),
+  toString
+)
+REV.orients <- sapply(
+  c(Forward = REV_dna,
+    Complement =Biostrings::complement(REV_dna),
+    Reverse = Biostrings::reverse(REV_dna),
+    RevComp = Biostrings::reverseComplement(REV_dna)),
+  toString
+)
+
+# Visualizar el vector
+FWD.orients
+
+# Filtrar muestras con bases ambiguas (Ns) para mapear correctamente los primers
+forward.filtN <- file.path("data/its/01_DADA2/filtN", basename(forward_reads)) 
+reverse.filtN <- file.path("data/its/01_DADA2/filtN", basename(reverse_reads))
+
+# Funcion de filtrado de DADA2
+filterAndTrim(forward_reads, forward.filtN, reverse_reads, reverse.filtN, maxN = 0, multithread = TRUE)
+
+## Función auxiliar para contar hits de primers en un archivo
+primerHits <- function(primer, fn) {
+    nhits <- vcountPattern(primer, sread(readFastq(fn)), fixed = FALSE)
+    return(sum(nhits > 0))
+}
+
+# Contar los hits
+rbind(
+  FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = forward.filtN[[1]]),
+  FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = reverse.filtN[[1]]),
+  REV.ForwardReads = sapply(REV.orients, primerHits, fn = forward.filtN[[1]]),
+  REV.ReverseReads = sapply(REV.orients, primerHits, fn = reverse.filtN[[1]])
+)
+
+# Obtener a ruta de cutadapt al usar which cutadapt
+cutadapt <- "/usr/bin/cutadapt"
+# Comprobar que funciona cutadapt
+system2(cutadapt, args = "--version")
+
+# Preparar directorio para fastqs sin primers
+path.cut <- file.path("data/its/01_DADA2/noPrimer_reads")
+if(!dir.exists(path.cut)) dir.create(path.cut)
+# Anadir los nombres de los archivos a la carpeta
+forward_reads.cut <- file.path(path.cut, basename(forward_reads))
+reverse_reads.cut <- file.path(path.cut, basename(reverse_reads))
+# Reverse complement
+FWD.RC <- dada2::rc(FWD)
+REV.RC <- dada2::rc(REV)
+
+# Filtrar el primer FWD y el complemente de REV de R1
+R1.flags <- paste("-g", FWD, "-a", REV.RC)
+# Filtrar el primer REV y el complemento de FWD de R2
+R2.flags <- paste("-G", REV, "-A", FWD.RC)
+# Correr cutadapt
+for(i in seq_along(forward_reads)){
+  system2(cutadapt, args = c(R1.flags, R2.flags, "-n", 2, "-m", 50, 
+                             "-o", forward_reads.cut[i], "-p", reverse_reads.cut[i], forward.filtN[i], reverse.filtN[i]), stdout = FALSE, stderr = FALSE)
+}
+```
+
+## Buscar primers post corte
+```{r primer-sanity-check}
+# Buscar primers post procesamiento
+rbind(
+  FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = forward_reads.cut),
+  FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = reverse_reads.cut),
+  REV.ForwardReads = sapply(REV.orients, primerHits, fn = forward_reads.cut),
+  REV.ReverseReads = sapply(REV.orients, primerHits, fn = reverse_reads.cut)
+)
+```
+
+# Inspeccionar la calidad de las muestras pre filtrado
+
+## Visualizar un subset de los datos para inferir la calidad
+```{r pre-12qs-plot, fig.width=12, fig.height=8}
+# Seleccionar 12 muestras aleatorias 
+random_samples <- sample(1:length(reverse_reads.cut), size = 12)
+random_samples
+
+# Calidad forward
+forward_preQual_plot_12 <- plotQualityProfile(forward_reads.cut[random_samples]) + 
+  labs(title = "Forward Read: Raw Quality")
+
+# Calidad reverse
+reverse_preQual_plot_12 <- plotQualityProfile(reverse_reads.cut[random_samples]) + 
+  labs(title = "Reverse Read: Raw Quality")
+
+# Unir los dos
+forward_preQual_plot_12 + reverse_preQual_plot_12
+```
+
+## Plot de calidad de todas las secuencias agregadas
+```{r aggregated-preQC-plot, fig.width=12, fig.height=8}
+# Reads forward
+forward_preQC_plot <- 
+  plotQualityProfile(forward_reads.cut, aggregate = TRUE) + 
+  labs(title = "Forward Pre-QC")
+
+# Reads reverse
+reverse_preQC_plot <- 
+  plotQualityProfile(reverse_reads.cut, aggregate = TRUE) + 
+  labs(title = "Reverse Pre-QC")
+
+# Juntar los plots en una sola figura
+preQC_aggregate_plot <- 
+  forward_preQC_plot + reverse_preQC_plot
+# Mostrar la figura
+preQC_aggregate_plot
+```
+
+## Tenemos datos binned?
+```{r quality-distribution}
+# Sacamos la primera muestras de la lista para probar con la calidad de sus reads
+fq_test <- readFastq(forward_reads[1])
+
+# Lo guardamos como matrix para aplicar unique
+q_matrix <- as(quality(fq_test), "matrix")
+
+# Obtenemos los valores unicos de calidad
+bins_reales <- na.omit(unique(as.vector(q_matrix)))
+
+# Mostrarlos
+sort(bins_reales)
+```
+
+<span style="color: red;"> Pregunta 1: Que inferencias iniciales en relacion al filtrado se pueden encontrar hasta ahora? </span> 
+
+[*Calidad alta de inicio a ~200pb:*<br>
+Se mantiene la tendendencia de illumina de perdida de calidad en las lecturas
+finales de R2 pero en contraste de lo esperado no hay un drop de calidad inicial
+muy fuerte, puede ser que haya sido enmascarado por el binning. <br>
+- **solucion: ** Ya que no se puede usar trimLeft o truncLen por la naturaleza de largo variable en ITS, se puede usar maxEE asimetricos tal vez (2,3) porque tampoco quisiera filtrar demasiado amplicones largos (por tener mas pb es mas probable que tengan EE altos)<br>
+*Calidad en binning:* al tener valores discretos se podria ver como cambian los largos y la profundidad al hacer truncq 11 y truncq 2, pero esto podria dejar secuencias demasiado pequeñas que no empalmaran
+- **solucion:** minLen de 50 para evitar cortar todas las lecturas largas y probar la distribucion entre truncq 11 y 2]
+
+# Filter and trim
+
+##  Preparar donde se van a guardar las reads filtradas 
+```{r prep-seq-for-filt}
+# Crear un vector del nombre de las muestras
+sample_names <- sapply(strsplit(basename(forward_reads.cut), "_"), `[`,1) 
+
+# Como se ven los nombres de las muestras?  
+head(sample_names)
+
+# Definir el path de las muestras post filtro
+filtered_path <- "data/its/01_DADA2/filtered_fastqs"
+
+# Crear el directorio si no existe
+if(!dir.exists(filtered_path)) dir.create(filtered_path, recursive = TRUE)
+
+# Crear un vector para R1 post filtro
+filtered_forward_reads <- 
+  file.path(filtered_path, paste0(sample_names, "_R1_filtered.fastq.gz"))
+
+# Intuition Check 
+length(filtered_forward_reads)
+
+# Vector para R2
+filtered_reverse_reads <- 
+  file.path(filtered_path, paste0(sample_names, "_R2_filtered.fastq.gz"))
+
+# Intuition Check 
+head(filtered_reverse_reads)
+```
+
+## Filtrar secuencias
+```{r filter-and-trim}
+filtered_reads <- 
+  filterAndTrim(fwd = forward_reads.cut, filt = filtered_forward_reads,
+              rev = reverse_reads.cut, filt.rev = filtered_reverse_reads,
+              maxN = 0, maxEE = c(2,3), 
+              truncQ = 2,
+              minLen = 50,
+              rm.phix = TRUE, compress = TRUE,
+              multithread = 10)
+
+```
+
+# Inspeccionar la calidad post-filtrado
+
+## Calidad de 12 muestras postQC
+```{r post-12qs-plot, fig.width=12, fig.height=8}
+# Se usan las mismas muestras, figura forward
+forward_filteredQual_plot_12 <- 
+  plotQualityProfile(filtered_forward_reads[random_samples]) + 
+  labs(title = "Trimmed Forward Read Quality")
+
+# Figura reversed
+reverse_filteredQual_plot_12 <- 
+  plotQualityProfile(filtered_reverse_reads[random_samples]) + 
+  labs(title = "Trimmed Reverse Read Quality")
+
+# unir los plots 
+forward_filteredQual_plot_12 + reverse_filteredQual_plot_12
+```
+
+## Calidad de las secuencias agregadas postQC
+```{r aggregated-postQC-plot, fig.width=12, fig.height=8}
+# reads forward
+forward_postQC_plot <- 
+  plotQualityProfile(filtered_forward_reads, aggregate = TRUE) + 
+  labs(title = "Forward Post-QC")
+
+# reads reverse
+reverse_postQC_plot <- 
+  plotQualityProfile(filtered_reverse_reads, aggregate = TRUE) + 
+  labs(title = "Reverse Post-QC")
+
+# Juntar los plots en una sola figura
+postQC_aggregate_plot <- 
+  forward_postQC_plot + reverse_postQC_plot
+# Mostrar la figura
+postQC_aggregate_plot
+```
+
+## Ver las diferencias en una misma figura 
+```{r pre-post-QC-plot, fig.width=6, fig.height=5.5}
+# Plot the pre and post together in one plot
+preQC_aggregate_plot / postQC_aggregate_plot
+```
+
+# Inspeccionar la retencion
+
+## Guardar el output en un data frame
+```{r data-frame}
+filtered_df <- as.data.frame(filtered_reads) %>%
+  mutate(percent.retained = reads.out/reads.in)
+
+# Visualizar la tabla 
+DT::datatable(filtered_df)
+```
+
+## Calcular estadisticas de filtrado
+```{r calc-stats}
+read_stats_df <- 
+  filtered_df %>%
+  reframe(median_reads_in = median(reads.in),
+          median_reads_out = median(reads.out),
+          median_percent_retained = (median(reads.out)/median(reads.in)),
+          max_percent_retained = max(reads.out/reads.in),
+          min_percent_retained = min(reads.out/reads.in))
+
+# Imprime la tabla!
+read_stats_df
+```
+
+## Grafico de estadisticas
+```{r plot-stats}
+numSeqs_QC_dotplot <-
+  filtered_df %>%
+  ggplot(aes(x = reads.in, y = reads.out)) + 
+  geom_point(alpha = 0.5, size = 2) + 
+  labs(x = "# of Raw Seqs", 
+       y = "# of Seqs Retained") + 
+  # Now let's add a 1:1 line for reference of keeping 100% of the reads
+  geom_abline(slope=1, intercept = 0, color = "deeppink")
+
+# Now, let's look at the number of reads retained in a histogram
+numRetained_QC_histplot <- 
+  filtered_df %>%
+  ggplot(aes(x = reads.out)) + 
+  geom_histogram() + 
+  labs(x = "# of Seqs Retained", 
+       y = "# of Samples") 
+
+# Create a histogram of percent reads retained in a histogram
+percSeqs_QC_histplot <- 
+  filtered_df %>%
+  ggplot(aes(x = percent.retained)) + 
+  geom_histogram() + 
+  labs(x = "% of Seqs Retained", 
+       y = "# of Samples") + 
+  # Set the scale to be between 0-1 (0-100%)
+  scale_x_continuous(limits = c(0, 1))
+
+# Now, let's put the plots together
+numSeqs_QC_dotplot + numRetained_QC_histplot + percSeqs_QC_histplot + 
+  plot_annotation(tag_levels = 'A')
+
+```
+
+
+<span style="color: red;"> Pregunta 2: Explica por que usaste los parametros finales para filter and trim y como se ve la calidad post filtrado. </span> 
+[La calidad se ve mas solida despues del filtrado, los dips finales en las muestras R2 se han reducido pero no eliminado por completo, solo que: truncq = 11 reduce demasiado el numero de muestras con largo alto y maxEE= c(1,1) elimina tambien muestras largas de sobremanera, viendo los graficos corriendo diferentes filter and trim creo que el actual es el mejor punto medio]
+
+# Stats del script
+
+## Tiempo final
+```{r end-time}
+# Tiempo al terminar el script
+end_time <- Sys.time()
+end_time 
+```
+
+## Tiempo de corrida
+```{r tiempo-corrida}
+elapsed_time <- round((end_time - start_time), 3)
+elapsed_time
+```
+
+## Ambiente y versiones para reproducibilidad
+```{r env-info}
+devtools::session_info()
+```
+
